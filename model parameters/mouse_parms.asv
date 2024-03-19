@@ -1,0 +1,71 @@
+clear all; close all; clc
+[fullpath, name, ext] = fileparts(which('quad_parms.m')); % folder contains the present m-file
+cd(fullpath)
+
+load('quad_parms.mat')
+
+save_parms = 0;
+show_figs = 1;
+
+%% Length and force scaling
+% experiemntal observations Hollingworth
+parms.Fmax = 0.0017; % [N]
+lopt = 0.014; % [m]
+
+% assumed force-velocity
+parms.vmaxrel = 10;
+parms.Arel = .3;
+parms.Brel = parms.vmaxrel*parms.Arel;
+
+% length scaling
+lscale = lopt / parms.lceopt;
+
+parms.r = parms.r * lscale;
+parms.lmtc0 = parms.lmtc0 * lscale;
+
+parms.lpe0 = parms.lpe0 * lscale;
+parms.lpemax = parms.lpemax * lscale;
+
+parms.lceopt = parms.lceopt * lscale;
+parms.lse0 = parms.lse0 * lscale;
+
+% update
+parms.lmtc = parms.lmtc_func(parms.phi, parms);
+parms.l0 = parms.lmtc - parms.lse0;
+parms.kpe = parms.Fmax / (parms.lpemax - parms.lpe0).^2;
+
+%% Evaluate torque-angle relation
+fl = cfxc.evaluate_force_length(0:2.5:120, parms, show_figs);
+
+%% Activation and facilitation dynamics
+parms.tau = [.002 .012]; % [s], forward and backward activation dynamics
+parms.tauR = [.035 .06]; % [s], forward and backward force facilitation dynamics
+
+%% crossbridge parameters
+parms.s = 2.4e-6; % [m], sarcomere length
+parms.mu = 1; % assume uniform
+
+%% fit remaining crossbridge model parameters on Hill-type force-velocity relation
+% analytical expressions Hill-type and Huxley-type force-velocity relations
+[parms, fv] = cfxc.fit_CB_on_Hill(parms);
+
+% original crossbridge model needs discretization
+parms.nbins = 20000;
+parms.xi0 = linspace(-50,50,parms.nbins);
+
+%% for DM model: evaluate isometric behavior (slightly different from Huxley), and update parms
+parms.analytical = 1;
+parms = cfxc.get_DM_Xmax(parms, show_figs);
+
+%% for DM model: evaluate force-velocity behavior (slightly different from Huxley)
+fv = cfxc.evaluate_DM(parms, fv, show_figs);
+ 
+%% save
+parms.type = 'facilitation';
+
+if save_parms
+    cd(fullpath)
+    save('mouse_parms.mat')
+    disp('Saved: mouse_parms.mat')
+end
+

@@ -1,0 +1,102 @@
+clear all; close all; clc
+
+[fullpath, name, ext] = fileparts(which('quad_parms.m')); % folder contains the present m-file
+cd(fullpath)
+cd ..
+addpath(genpath(cd))
+
+save_parms = 0;
+show_figs = 1;
+
+%% start with some general parameters and (anonymous) functions
+parms = cfxc.gen_funcs();
+parms = cfxc.gen_parms(parms);
+
+%% Hill-type parameters
+% force-length
+parms.Fmax = 4779; % [N]
+parms.lceopt = 0.093; % [m]
+             
+% force-velocity
+parms.vmaxrel = 6; % [lopt/s] maximal contraction velocity
+parms.Arel = .2; % [] curvature parameter
+
+%% series-elastic element
+parms.see.lse0 = .205; % [m], SE slack length
+parms.see.sexm = .097; % [], SE toe-region length
+parms.see.sesl = 31; % [], SE linear stiffness
+parms.see.sefm = 0.5; % [], SE toe-region force
+
+% calcualte shape so that things are continous
+shape_fun = @(sh,parms) (sh * parms.see.sefm - parms.see.sesl*parms.see.sexm) * exp(sh) + parms.see.sesl*parms.see.sexm;
+parms.sesh = fzero(@(sh) shape_fun(sh,parms), 4);
+                        
+%% muscle-tendon complex
+parms.r = .042; % [m], moment arm 
+parms.lce0 = .057; % [m], CE length at phi = 0, determines position torque-angle relation
+parms.lmtc0 = parms.see.lse0 + parms.lce0;  % MTC length at phi = 0
+
+%% evaluate torque-angle relation
+phis = (0:2.5:120); % [deg], joint angles
+fl = cfxc.evaluate_force_length(phis, parms, show_figs);
+
+%% activation and force facilitation dynamics
+parms.tau = [.002 .05]; % [s], forward and backward activation dynamics
+parms.tauR = [.06 .02]; % [s], forward and backward force facilitation dynamics
+
+%% cross-bridge model: cross-bridge cycling dynamics
+% rate functions (only used for numerical approach)
+parms.f_func = @(parms) parms.f(1) .* parms.xi.*(parms.xi>0 & parms.xi<=1);
+parms.g_func = @(parms) parms.g(1) .* parms.xi .* (parms.xi > 0 & parms.xi <= 1) + parms.g(2) .* (parms.xi < 0) + ...
+    (parms.g(1)  .* parms.xi + parms.g(3) .* (parms.xi-1)) .* (parms.xi > 1);
+
+% strain vector (only used for numerical approach)
+parms.xi = linspace(-5,5,1000);
+
+% geometry scaling
+parms.h = 12*10^-9; % [m], crossbridge reach
+parms.s = 2.64 * 10^-6;  % [m], sarcomere length
+
+% scale rates for submaximal activation
+parms.mu = 1/3;
+parms.scale_rates = @(u, rate, mu) rate * (mu + u*(1-mu)); 
+
+%% fit remaining crossbridge model parameters on Hill-type force-velocity relation
+% analytical expressions Hill-type and Huxley-type force-velocity relations
+[parms, fv] = cfxc.fit_CB_on_Hill(parms);
+
+% original crossbridge model needs discretization
+parms.nbins = 20000;
+parms.xi0 = linspace(-50,50,parms.nbins);
+
+%% for DM model: evaluate isometric behavior (slightly different from Huxley), and update parms
+parms.analytical = 1;
+parms.type = 'facilitation';
+parms = cfxc.get_DM_Xmax(parms, show_figs);
+
+%% for DM model: evaluate force-velocity behavior (slightly different from Huxley)
+fv = cfxc.evaluate_DM(parms, fv, show_figs);
+
+%% define some default settings
+% experimental conditions
+parms.stim_type = 'u_func';
+parms.vmtc = 0;
+parms.amin = 1e-3; % neccesary for Hill-type model
+parms.phi = 90; % [deg], joint angle
+
+% settings
+parms.optimum = 0;
+parms.no_tendon = 0;
+parms.odeopt = odeset('maxstep',1e-3);
+parms.sim_mtc = 0; % simulate MTC
+
+%% saving
+if save_parms
+    cd(fullpath)
+    save('quad_parms.mat','parms','fv','fl')
+    disp('Saved: quad_parms.mat')
+end
+
+
+
+
