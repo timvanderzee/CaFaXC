@@ -1,7 +1,7 @@
 # CaFaXC muscle model
 This repository contains code that describes the calcium-facilitation-cross-bridge-contraction (CaFaXC) muscle model. 
 The model simulates muscle force development in response to various excitation inputs, alongside dependencies on muscle length and contraction velocity. 
-The model is described in detail in our recent preprint (LINK HERE). 
+The model is described in detail in [a BioRxiv preprint](https://www.biorxiv.org/content/10.1101/2024.08.07.606988v1). 
 The repository also contains summary data that together with code can be used to reproduce the manuscript's main figures. 
 ## Running the model
 To run the CaFaXC on various conditions, use the main.m script. Running the script results in saving model output in this folder: cafaxc-muscle-model\manuscript figures\model output.
