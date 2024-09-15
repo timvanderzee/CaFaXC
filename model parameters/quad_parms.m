@@ -5,7 +5,7 @@ cd(fullpath)
 cd ..
 addpath(genpath(cd))
 
-save_parms = 1;
+save_parms = 0;
 show_figs = 1;
 
 %% start with some general parameters and (anonymous) functions
@@ -16,7 +16,8 @@ parms = cfxc.gen_parms(parms);
 % force-length
 parms.ce.Fmax = 4779; % [N]
 parms.ce.lceopt = 0.093; % [m]
-             
+parms.ce.thickness = 0.04; % [m], if you're doing pennation          
+
 % force-velocity
 parms.ce.vmaxrel = 6; % [lopt/s] maximal contraction velocity
 parms.ce.Arel = .2; % [] curvature parameter
@@ -88,6 +89,7 @@ parms.set.optimum = 0;
 parms.set.no_tendon = 0;
 parms.set.odeopt = odeset('maxstep',1e-3);
 parms.set.sim_mtc = 0; % simulate MTC
+parms.set.fixed_velocity = 0;
 
 %% saving
 if save_parms

@@ -169,15 +169,17 @@ end
 
 set(gcf,'units','normalized','position', [0 .3 .6 .4])
 
-% summary figure
+%% summary figure
 if ishandle(3), close(3); end; figure(3)
 subplot(211); semilogx(freqs, Fgain/Fgain(1),'linewidth',2); box off; hold on
 ylim([0 1.5])
 xlabel('Cyclic contraction frequency (Hz)'); ylabel('Gain (a.u.)'); title('Gain')
+xlim([.5 3.1])
 
 subplot(212); semilogx(freqs, Fphase,'linewidth',2); box off; hold on
 ylim([-150 0])
 xlabel('Cyclic contraction frequency (Hz)'); ylabel('Phase (deg)'); title('Phase')
+xlim([.5 3.1])
 
 set(gcf,'units','normalized','position', [.6 .3 .2 .4])
 

@@ -103,10 +103,12 @@ for s = ss
             parms.type = mtypes{m};
             
             if  strcmp(parms.type,'Hill-type') % sometimes needed
-                parms.set.odeopt = odeset('maxstep',1e-4);
+                parms.set.odeopt = odeset('maxstep',1e-3);
             else
                 parms.set.odeopt = odeset('maxstep',1e-3);
             end
+            
+            parms.set.odeopt = [];
             
             if setts.slow_act && ~strcmp(parms.type,'CaFaXC')
                if setts.mouse
@@ -132,9 +134,12 @@ for s = ss
 
             % simulate
             tic
-            [t,x] = ode113(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
+            [t,x] = ode23s(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
             toc
             disp(['Number of iterations: ', num2str(length(t))])
+            
+            figure(100)
+            plot(diff(t)); hold on
             
             dX = nan(size(x))';
             for i = 1:length(t)

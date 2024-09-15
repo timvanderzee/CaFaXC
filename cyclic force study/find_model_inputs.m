@@ -1,6 +1,6 @@
 clear all; close all; clc
 
-save_output = 0;
+save_output = 1;
 
 %% constants for dependencies
 [cfxcpath, name, ext] = fileparts(which('main_cfxc.m')); % folder contains the present m-file
@@ -27,12 +27,13 @@ load([muscle,'_parms.mat'])
 
 % simulate minimal and maximal
 parms.type = 'crossbridge';
-parms = cfxc.update_parms(parms);
+parms = cfxc.calc_x0(parms);
 
 %% define kinematics and kinetics
-freqs = 0.5:0.1:2.5;
+freqs = 0.5:0.1:4;
+% freqs = 2.5;
 phi = 20 * ones(length(freqs), N);
-lmtc = parms.lmtc_func(phi, parms);
+lmtc = parms.func.lmtc(phi, parms);
 
 for f = length(freqs):-1:1
     freq = freqs(f);
@@ -53,10 +54,10 @@ for i = 1:2
 end
 
 %% find muscle length and velocity
-Fx = Tx ./ parms.r;
-lse = parms.lse0 * parms.lse_func(Fx(f,:)/parms.Fmax, parms) + parms.lse0;
+Fx = Tx ./ parms.mtc.r;
+lse = parms.see.lse0 * parms.func.lse(Fx(f,:)/parms.ce.Fmax, parms) + parms.see.lse0;
 lce = lmtc - lse;
-FL = parms.afunc(lce, parms);
+FL = parms.func.fce(lce, parms);
     
 for f = length(freqs):-1:1
     vce(f,:) = cfxc.grad5(lce(f,:)', mean(diff(tx(f,:))))'; % positive for shortening
@@ -78,14 +79,14 @@ for i = 1:3
 end
 
 % scale velocity
-Ux = vce * parms.s / (2*parms.h*parms.lceopt);
+Ux = vce * parms.CB.s / (2*parms.CB.h*parms.ce.lceopt);
 
 % create problem
 prob.prev = 1;
 prob.N = N;
 prob.freqs = freqs;
 prob.M = 3;
-prob.Target = repmat(Fx(:)/parms.Fmax, 1, length(freqs),1);
+prob.Target = repmat(Fx(:)/parms.ce.Fmax, 1, length(freqs),1);
 prob.t = tx;
 
 if save_output
@@ -93,8 +94,8 @@ save(fullfile(SAVEDIR,'kinematics_kinetics.mat'))
 end
 
 %% find cross-bridge activation
-parms.Xmin = parms.x0(2:4);
-parms.Umin = parms.amin;
+parms.Xmin = parms.exp.x0(2:4);
+parms.Umin = parms.ce.amin;
 
 % create parms matrix
 Parms = parms;
@@ -102,10 +103,10 @@ for f = 1:length(freqs)
     for i = 1:N
         Parms(i,f) = parms(1);
 
-        Parms(i,f).u = Ux(f,i);
+        Parms(i,f).exp.u = Ux(f,i);
 
         % force-length
-        Parms(i,f).a = FL(f,i);
+        Parms(i,f).exp.a = FL(f,i);
     end
 end
 
@@ -130,14 +131,15 @@ prob.freqs = freqs;
 [~,ipeak] = max(R_opt,[],2);
 
 % create parms matrix
+% parms.tau = [];
 Parms = parms;
 for f = 1:length(freqs)
     for i = 1:prob.N
         Parms(i,f) = parms(1);
         if i < ipeak(f) 
-            Parms(i,f).tau = parms.tauR(1);
+            Parms(i,f).ce.tau = parms.ce.tauR(1);
         else
-            Parms(i,f).tau = parms.tauR(2);
+            Parms(i,f).ce.tau = parms.ce.tauR(2);
         end
     end
 end
@@ -166,9 +168,9 @@ for f = 1:length(freqs)
     for i = 1:prob.N
         Parms(i,f) = parms(1);
         if i < ipeak(f) 
-            Parms(i,f).tau = parms.tau(1);
+            Parms(i,f).ce.tau = parms.ce.tau(1);
         else
-            Parms(i,f).tau = parms.tau(2);
+            Parms(i,f).ce.tau = parms.ce.tau(2);
         end
     end
 end

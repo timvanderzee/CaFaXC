@@ -63,7 +63,7 @@ classdef cfxc < handle
           disp('Initial guess ...')
       % initial conditions
           if prob.prev == 1
-              if freq == 2.5
+              if f == length(prob.freqs)
                   load(fullfile(savedir,'prev.mat'),'R_opt','X_opt');
                   load(fullfile(savedir,'crossbridge_activations'),'R_opt');
                   R_opt = R_opt(end,:);
@@ -214,9 +214,9 @@ classdef cfxc < handle
     function[cost] = find_CBrates(rates, parms)
         
         parms.CB.f = rates(1);
-        parms.CB.g = rates;
+        parms.CB.g = rates(2:end);
         
-        Fces = linspace(0, parms.ce.Fmax * parms.ce.Fasymp);
+        Fces = linspace(0, parms.ce.Fmax * (.95 * parms.ce.Fasymp));
         
         % Hill velocities
         vHill = parms.func.fv(1, Fces, 1, parms) / parms.ce.lceopt;
@@ -229,11 +229,10 @@ classdef cfxc < handle
     end
     
     
-
     function[n,p,q] = n_func(Q0, Q1, Q2, parms)
 
       if nargin < 4
-          parms.CB.xi = -3:.01:3;
+          parms.xi = -3:.01:3;
       end
       
           eps = 1e-6;
@@ -244,7 +243,7 @@ classdef cfxc < handle
           q = sqrt(max(Q2/Q0c - (Q1/Q0c)^2, eps));  % Eq. 52
       
           % n
-          n = Q0 ./ (sqrt(2*pi)*q) * exp(-((parms.CB.xi-p).^2) / (2*q^2));  % Eq. 52, modified
+          n = Q0 ./ (sqrt(2*pi)*q) * exp(-((parms.xi-p).^2) / (2*q^2));  % Eq. 52, modified
     end
 
     function error = eulerIntegrator(x,xplus,uplus,dt)
@@ -263,6 +262,9 @@ classdef cfxc < handle
     %%% removed to allow testing/calling from other files.
 
     function[dX] = sim_muscle(t, x, parms)
+        
+        dX = x;
+        
 %       disp(t)
       Ca = x(1);
 
@@ -292,6 +294,9 @@ classdef cfxc < handle
 
       if strcmp(parms.type, 'crossbridge')
         dX(2:5,1) = cfxc.crossbridge(Ca, x(2:5), parms);
+        
+      elseif strcmp(parms.type, 'crossbridge_new')
+        dX(2:6,1) = cfxc.crossbridge_new(Ca, x(2:6), parms);
       
       elseif strcmp(parms.type, 'Huxley')
         dX(2:(parms.CB.nbins+2),1) = cfxc.crossbridge_original(Ca, x(2:end), parms);
@@ -301,7 +306,11 @@ classdef cfxc < handle
 
       elseif strcmp(parms.type, 'CaFaXC')
         dX(2,1) = parms.func.fac(Ca, x(2), parms); % CaFaXC dynamics
-        dX(3:6,1) = cfxc.crossbridge(x(2), x(3:6), parms); % cross-bridge dynamics
+        dX(3:end,1) = cfxc.crossbridge(x(2), x(3:end), parms); % cross-bridge dynamics
+        
+      elseif strcmp(parms.type, 'CaFaXC_v2')
+        dX(2,1) = parms.func.fac(Ca, x(2), parms); % CaFaXC dynamics
+        dX(3:end,1) = cfxc.crossbridge_v2(x(2), x(3:end), parms); % cross-bridge dynamics        
       end
       
       % if we're simulating the lmtc
@@ -333,7 +342,7 @@ end
       
       else
           % get distribution
-          n = cfxc.n_func(Q0, Q1, Q2, parms);
+          n = cfxc.n_func(Q0, Q1, Q2, parms.CB);
       
           beta0 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms));   % Eq. 48
           beta1 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms));   % Eq. 48
@@ -351,15 +360,21 @@ end
     function[lce] = calc_length_from_force(F, parms)
         
         % method 1: ignore PE
-        dlse = parms.func.lse(F/parms.CE.Fmax, parms) * parms.see.lse0;
-        lce = parms.exp.lmtc - dlse - parms.see.lse0;
+        dlse = parms.func.lse(F/parms.ce.Fmax, parms) * parms.see.lse0;
+        lcex = parms.exp.lmtc - dlse - parms.see.lse0; % lce along mtc
         
         % method 2: include PE, only works for certain functions
         
         % method 3: root-finding, is costly (not recommended)
+        
+        if parms.ce.pennation % assume constant thickness
+            lce = sqrt(lcex.^2 + parms.ce.thickness^2);
+        else
+            lce = lcex; 
+        end
     end
     
-    function[Qd] = crossbridge(r, x, parms)
+      function[Xd] = crossbridge_new(r, x, parms)
       % Zahalak derivative function with 3 states (the Qs)
       % based on Zahalak & Ma (1990), J. Biomech. Eng.
 
@@ -367,19 +382,33 @@ end
       Q0 = x(1); 
       Q1 = x(2); 
       Q2 = x(3); 
+      R = x(4);
       
-      % rate constants
-      parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
-      parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
+      D = 1 - Q0 - R;
+      
+      Q = [Q0; Q1; Q2];
+      
+      % attached
+      N = cfxc.n_func(Q(1), Q(2), Q(3),parms.CB);
+    
+      i = 2;
+      
+      Q1dot = r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.f_func(parms) .* D) +...
+                r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.b_func(parms) .* R) - ...
+                  trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* (parms.CB.g_func(parms) + parms.CB.k_func(parms)) .* N);   
 
-      % calculate beta and phi
-      [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
-      
+        % change in ripped
+        Rd = trapz(parms.CB.xi, parms.CB.k_func(parms) .* N) - r * trapz(parms.CB.xi, parms.CB.b_func(parms) .* R);  
+    
+        % length scaling parameter
+        gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+        alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
+        
       %% length dynamics  
       if ~parms.set.fixed_velocity
           % either length is a quasi-state, or we need to calculate it
-        if length(x) > 3
-            lce = x(4);
+        if length(x) > 4
+            lce = x(5);
         else
             lce = cfxc.calc_length_from_force(Q1/parms.CB.delta, parms);
         end
@@ -391,15 +420,11 @@ end
 
         % determine elastic stiffnesses
         kp = parms.func.kpe(lce, parms);
-        dlse_rel = ((parms.exp.lmtc - lce)-parms.see.lse0) / parms.see.lse0;
+        dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
         ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
 
-        % length scaling parameter
-        gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
-        alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
-
         % calculate velocity that assures that forces are compatible at next time step
-        u = (parms.CB.delta*ks * parms.exp.vmtc - a * r * beta(2) + phi(2)) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
+        u = (parms.CB.delta*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
         % u = (Ldot - alpha*parms.kappa(alpha*Q1) * r * betha1 + alpha*parms.kappa(alpha*Q1)*phi1) / ((-Q0)*alpha*parms.kappa(alpha*Q1) - parms.gamma) % from Jer?
 
         if parms.set.no_tendon
@@ -413,18 +438,183 @@ end
       end
       
       %% state derivates
-      Qd0 = a * r * beta(1) - phi(1);
-      Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
-      Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
+          % add a zero
+
+      % calculate beta and phi
+      [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
+    
+      
+      % get distribution
+      n = cfxc.n_func(Q0, Q1, Q2, parms.CB);
+
+      beta0 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms));   % Eq. 48
+      beta1 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms));   % Eq. 48
+      beta2 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms));   % Eq. 48
+
+      phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
+      phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
+      phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
+
+      beta = [beta0 beta1 beta2];
+      phi = [phi0 phi1 phi2];
+      
+    Qr = [0; Q];
+    Qd = nan(size(Q));  
+    for i = 1:3
+        Qd(i,1)  = r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.f_func(parms) .* D) ...
+            + r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.b_func(parms) .* R) ...
+            - trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* (parms.CB.g_func(parms) + parms.CB.k_func(parms)) .* N) + (i-1) * u * Qr(i);   
+    end
+% 
+%       Qd0 = a * r * beta(1) - phi(1);
+%       Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
+%       Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
+      
+%       Qd = [Qd0; Qd1; Qd2];
           
-      if length(x) > 3
+      if length(x) > 4
         vce = u / alpha;
       else
         vce = [];
       end
       
       % total state derivative vector
-      Qd = [Qd0; Qd1; Qd2; vce];
+      Xd = [Qd; Rd; vce];
+
+      end
+    
+    function[Qd] = crossbridge(r, x, parms)
+    % Zahalak derivative function with 3 states (the Qs)
+    % based on Zahalak & Ma (1990), J. Biomech. Eng.
+
+    %% retrieve states
+    Q0 = x(1); 
+    Q1 = x(2); 
+    Q2 = x(3); 
+
+    % rate constants
+    parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
+    parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
+
+    % calculate beta and phi
+    [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
+      
+    % length scaling parameter
+    gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+    alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
+
+    %% length dynamics  
+    if ~parms.set.fixed_velocity
+      % either length is a quasi-state, or we need to calculate it
+    if length(x) > 3
+        lce = x(4);
+    else
+        lce = cfxc.calc_length_from_force(Q1/parms.CB.delta, parms);
+    end
+
+    if parms.set.optimum
+        a = parms.exp.a; % in case you assume optimum length
+    else, a = parms.func.fce(lce, parms); % in case you use force-length relation
+    end
+
+    % determine elastic stiffnesses
+    kp = parms.func.kpe(lce, parms);
+    dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
+    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
+
+    % calculate velocity that assures that forces are compatible at next time step
+    u = (parms.CB.delta*ks * parms.exp.vmtc - a * r * beta(2) + phi(2)) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
+    %         u = (parms.CB.delta*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
+
+    if parms.set.no_tendon
+      u = alpha * parms.exp.vmtc;
+    end
+
+    else
+
+     u = parms.exp.u;
+     a = parms.exp.a;
+    end
+
+    %% state derivates
+    Qd0 = a * r * beta(1) - phi(1);
+    Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
+    Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
+
+    if length(x) > 3
+    vce = u / alpha;
+    else
+    vce = [];
+    end
+
+    % total state derivative vector
+    Qd = [Qd0; Qd1; Qd2; vce];
+
+    end
+    
+    function[Qd] = crossbridge_v2(r, x, parms)
+    % Zahalak derivative function with 3 states (the Qs)
+    % based on Zahalak & Ma (1990), J. Biomech. Eng.
+    % here we have length as a state
+
+    %% retrieve states
+    Q0 = x(1); 
+    Q2 = x(2); 
+    lce = x(3); 
+    
+    % determine force
+    lse = parms.exp.lmtc - lce;
+    dlse_rel = (lse - parms.see.lse0) / parms.see.lse0;
+    Ft = parms.ce.Fmax * parms.func.fse(dlse_rel, parms);
+    Fp = parms.func.fpe(lce, parms);
+    Fm = Ft - Fp;
+    Q1 = Fm * parms.CB.delta;
+
+    % rate constants
+    parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
+    parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
+
+    % calculate beta and phi
+    [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
+      
+    % length scaling parameter
+    gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+    alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
+
+    %% length dynamics  
+    if ~parms.set.fixed_velocity
+    if parms.set.optimum
+        a = parms.exp.a; % in case you assume optimum length
+    else, a = parms.func.fce(lce, parms); % in case you use force-length relation
+    end
+
+    % determine elastic stiffnesses
+    kp = parms.func.kpe(lce, parms);
+    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
+
+    % calculate velocity that assures that forces are compatible at next time step
+%     u = (parms.CB.delta*ks * parms.exp.vmtc - a * r * beta(2) + phi(2)) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
+      vce = (parms.exp.vmtc * ks - parms.ce.Fmax/parms.CB.Xmax(2) * (a * r * beta(2) - phi(2))) ...
+          / (ks + kp + parms.ce.Fmax/(parms.CB.Xmax(2)*gamma*parms.ce.lceopt) * Q0);
+      u = vce / (gamma * parms.ce.lceopt);
+
+    if parms.set.no_tendon
+      u = alpha * parms.exp.vmtc;
+    end
+
+    else
+
+     u = parms.exp.u;
+     a = parms.exp.a;
+    end
+
+    %% state derivates
+    Qd0 = a * r * beta(1) - phi(1);
+%     Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
+    Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
+
+    % total state derivative vector
+    Qd = [Qd0; Qd2; vce];
 
     end
     
@@ -712,7 +902,7 @@ end
     function clcs = demo_sim_leg()
       
       % knee extension movement, begin knee bent straight down.
-      phi_rad_0 = pi/2;
+      phi_rad_0 = 0;
 
       parms = load('quad_parms.mat','parms');
       parms = parms.parms;
@@ -721,7 +911,7 @@ end
       parms = cfxc.calc_x0(parms); 
 
       parms.exp.stim_type = 'constant';
-      parms.exp.A = 1;
+      parms.exp.A = .02;
 
       % parms has too many parameters; here we specify explicity for some code control.
       parms.type = 'CaFaXC';
@@ -731,7 +921,7 @@ end
       % initial state
       X0 = [parms.exp.x0(1), parms.exp.x0(1:end),phi_rad_0,0];
       
-      [t_s,state_s] = ode113(@cfxc.sim_segment, [0 .5], X0, parms.set.odeopt, parms);
+      [t_s,state_s] = ode113(@cfxc.sim_segment, [0 10], X0, parms.set.odeopt, parms);
       clcs = cfxc.calcs_facilitation_sim(t_s,state_s,parms);
 
     end
@@ -761,9 +951,10 @@ end
       ylabel('activation')
       
       subplot(222)
-      plot(t_s, out.phi_joint_rad*180/pi); hold on
+      plot(t_s, 180-out.phi_joint_rad*180/pi); hold on
       xlabel('time (s)');
       ylabel('joint angle (deg)')
+      ylim([20 180])
       
       subplot(223);
       plot(t_s,out.F_mus);hold on;
@@ -789,14 +980,15 @@ end
       
       for i = 1:4
           subplot(2,2,i)
-          axis tight
+%           axis tight
           box off
+          xlim([0 max(t_s)])
       end
 
     end
     
-    function[fl] = evaluate_force_length(phis, parms,show)
-        
+    
+        function[fl] = evaluate_force_length(phis, parms,show)
     Lces = linspace(0, 2*parms.ce.lceopt, 1000);
     Fces = linspace(0,.99*parms.ce.Fasymp*parms.ce.Fmax, 1000);
 
@@ -949,18 +1141,20 @@ end
   
     function[parms, fv] = fit_CB_on_Hill(parms)
         
-        rates0 = [150 1000 100];
+        rates0 = [150 100 1000 100];
     %     cost = cfxc.find_CBrates(rates0, parms);
 
+        fopt = optimset('display','iter');
+    
         % find the rates
-        rates = fminsearch(@(rates) cfxc.find_CBrates(rates, parms), rates0);
+        rates = fminsearch(@(rates) cfxc.find_CBrates(rates, parms), rates0, fopt);
 
         % rates
         parms.CB.f = rates(1);
-        parms.CB.g = rates;
+        parms.CB.g = rates(2:end);
 
         % vector with forces
-        fv.FHill = linspace(0, parms.ce.Fmax * parms.ce.Fasymp);
+        fv.FHill = linspace(0, parms.ce.Fmax * (0.95 * parms.ce.Fasymp));
 
         % Hill-type
         fv.vHill = parms.func.fv(1,  fv.FHill, 1, parms) / parms.ce.lceopt;
@@ -986,7 +1180,7 @@ end
                 
         if show
             [t,x] = ode113(@cfxc.dXfunc_shell, [0 .1], [0 0 0], [], parms);
-            n = cfxc.n_func(parms.CB.Xmax(1), parms.CB.Xmax(2), parms.CB.Xmax(3), parms);
+            n = cfxc.n_func(parms.CB.Xmax(1), parms.CB.Xmax(2), parms.CB.Xmax(3), parms.CB);
         
             if ishandle(3), close(3);end
             figure(3)
@@ -1022,7 +1216,7 @@ end
 function[fv] = evaluate_DM(parms, fv, show)
 
     % isokinetic contraction DM model
-    opt = optimset('TolX',1e-3,'TolFun',1e-3);
+    opt = optimset('TolX',1e-5,'TolFun',1e-5);
     
     % test
     parms.type = 'crossbridge';
@@ -1131,6 +1325,8 @@ function[parms] = gen_parms(parms)
     parms.pe.lpe0 = 1.2;
     parms.pe.lpemax = 1.6;
 
+    % pennation
+    parms.ce.pennation = 0;
   end
   end
 end
