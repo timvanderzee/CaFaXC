@@ -211,10 +211,11 @@ classdef cfxc < handle
         cost = sum(Xd.^2);
     end
     
-    function[cost] = find_CBrates(rates, parms)
+    function[cost] = find_CBrates(rates, parms, type)
         
         parms.CB.f = rates(1);
-        parms.CB.g = rates(2:end);
+        parms.CB.g(1) = rates(1);
+        parms.CB.g(2:end) = rates(2:end);
         
         Fces = linspace(0, parms.ce.Fmax * (.95 * parms.ce.Fasymp));
         
@@ -1141,7 +1142,7 @@ end
   
     function[parms, fv] = fit_CB_on_Hill(parms)
         
-        rates0 = [150 100 1000 100];
+        rates0 = [150 1000 100];
     %     cost = cfxc.find_CBrates(rates0, parms);
 
         fopt = optimset('display','iter');
@@ -1151,7 +1152,8 @@ end
 
         % rates
         parms.CB.f = rates(1);
-        parms.CB.g = rates(2:end);
+        parms.CB.g(1) = parms.CB.f;
+        parms.CB.g(2:end) = rates(2:end);
 
         % vector with forces
         fv.FHill = linspace(0, parms.ce.Fmax * (0.95 * parms.ce.Fasymp));
