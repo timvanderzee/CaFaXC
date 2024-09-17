@@ -211,22 +211,17 @@ classdef cfxc < handle
         cost = sum(Xd.^2);
     end
     
-    function[cost] = find_CBrates(rates, parms, type)
+    function[cost] = find_CBrates(rates, parms, fv)
         
         parms.CB.f = rates(1);
         parms.CB.g(1) = rates(1);
         parms.CB.g(2:end) = rates(2:end);
         
-        Fces = linspace(0, parms.ce.Fmax * (.95 * parms.ce.Fasymp));
-        
-        % Hill velocities
-        vHill = parms.func.fv(1, Fces, 1, parms) / parms.ce.lceopt;
-        
         % CB force for Hill velocities
-        FCB = cfxc.CB_force_velocity(vHill, parms) * parms.ce.Fmax;
+        FCB = cfxc.CB_force_velocity(fv.vHill, parms);
         
         % cost is sum-squared difference
-        cost = sum((Fces-FCB).^2);
+        cost = sum((fv.FHill-FCB).^2);
     end
     
     
@@ -296,6 +291,9 @@ classdef cfxc < handle
       if strcmp(parms.type, 'crossbridge')
         dX(2:5,1) = cfxc.crossbridge(Ca, x(2:5), parms);
         
+      elseif strcmp(parms.type, 'crossbridge_v2')
+        dX(2:4,1) = cfxc.crossbridge_v2(Ca, x(2:4), parms);
+      
       elseif strcmp(parms.type, 'crossbridge_new')
         dX(2:6,1) = cfxc.crossbridge_new(Ca, x(2:6), parms);
       
@@ -307,7 +305,7 @@ classdef cfxc < handle
 
       elseif strcmp(parms.type, 'CaFaXC')
         dX(2,1) = parms.func.fac(Ca, x(2), parms); % CaFaXC dynamics
-        dX(3:end,1) = cfxc.crossbridge(x(2), x(3:end), parms); % cross-bridge dynamics
+        dX(3:6,1) = cfxc.crossbridge(x(2), x(3:6), parms); % cross-bridge dynamics
         
       elseif strcmp(parms.type, 'CaFaXC_v2')
         dX(2,1) = parms.func.fac(Ca, x(2), parms); % CaFaXC dynamics
@@ -316,7 +314,7 @@ classdef cfxc < handle
       
       % if we're simulating the lmtc
       if parms.set.sim_mtc
-          dX(end+1,1) = parms.exp.vmtc;
+          dX(end,1) = parms.exp.vmtc;
       end
     end
     
@@ -499,14 +497,14 @@ end
 
     % calculate beta and phi
     [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
-      
-    % length scaling parameter
-    gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
-    alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
 
     %% length dynamics  
     if ~parms.set.fixed_velocity
-      % either length is a quasi-state, or we need to calculate it
+        % length scaling parameter
+        gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+        alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
+
+        % either length is a quasi-state, or we need to calculate it
     if length(x) > 3
         lce = x(4);
     else
@@ -569,8 +567,7 @@ end
     Ft = parms.ce.Fmax * parms.func.fse(dlse_rel, parms);
     Fp = parms.func.fpe(lce, parms);
     Fm = Ft - Fp;
-    Q1 = Fm * parms.CB.delta;
-
+    Q1 = Fm * parms.CB.delta; % note: delta = fmax/Fmax (omgekeerd)
     % rate constants
     parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
     parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
@@ -590,14 +587,14 @@ end
     end
 
     % determine elastic stiffnesses
-    kp = parms.func.kpe(lce, parms);
-    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
+    kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
+    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
 
     % calculate velocity that assures that forces are compatible at next time step
-%     u = (parms.CB.delta*ks * parms.exp.vmtc - a * r * beta(2) + phi(2)) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
-      vce = (parms.exp.vmtc * ks - parms.ce.Fmax/parms.CB.Xmax(2) * (a * r * beta(2) - phi(2))) ...
-          / (ks + kp + parms.ce.Fmax/(parms.CB.Xmax(2)*gamma*parms.ce.lceopt) * Q0);
-      u = vce / (gamma * parms.ce.lceopt);
+      vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - (a * r * beta(2) - phi(2))/parms.CB.Xmax(2)) ...
+                 / (ks + kp + Q0/(parms.CB.Xmax(2)*gamma));
+      
+      u = vcerel / gamma;
 
     if parms.set.no_tendon
       u = alpha * parms.exp.vmtc;
@@ -614,6 +611,8 @@ end
 %     Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
     Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
 
+    vce = vcerel * parms.ce.lceopt;
+    
     % total state derivative vector
     Qd = [Qd0; Qd2; vce];
 
@@ -709,7 +708,7 @@ end
       end
 
       % force-velocity
-      Vce = parms.func.fv(a, Fce, Fisom, parms);
+      Vce = parms.func.fv(a, Fce/parms.ce.Fmax, Fisom, parms) * parms.ce.lceopt;
 
       if isnan(Vce), keyboard
       end
@@ -1040,16 +1039,16 @@ end
     end
 
 if show
-    %% Figure 1: Muscle level
-    if ishandle(1), close(1); end
-    figure(1)
+    %% Figure 2: Muscle level
+    if ishandle(2), close(2); end
+    figure(2)
     subplot(221);
     plot(Lces, parms.func.fce(Lces, parms)*parms.ce.Fmax); 
     xline(parms.ce.lceopt,'k--')
 
     subplot(222);
-    plot(parms.func.fv(1, Fces, 1, parms), Fces);
-    xlim(parms.ce.vmaxrel*parms.ce.lceopt * [-1 1])
+    plot(parms.func.fv(1, Fces/parms.ce.Fmax, 1, parms), Fces);
+    xlim(parms.ce.vmaxrel * [-1 1])
     yline(parms.ce.Fmax,'k--')
     xline(0,'k--')
 
@@ -1075,8 +1074,8 @@ if show
      end
  
      %% Figure 2: Joint level
-    if ishandle(2), close(2); end
-    figure(2)
+    if ishandle(3), close(3); end
+    figure(3)
 
     subplot(221)
     plot(fl.phis,fl.Fse(:,1)/parms.ce.Fmax); hold on; box off
@@ -1116,7 +1115,7 @@ if show
     symb = '.x';
 
     %% Figure 1
-    figure(1)
+    figure(2)
     for p = 1:length(fl.phis)
         parms.exp.lmtc = parms.func.lmtc(fl.phis(p), parms);
 
@@ -1140,91 +1139,78 @@ end
     %
     end
   
-    function[parms, fv] = fit_CB_on_Hill(parms)
-        
+    function[parms, fv] = fit_CB_on_Hill(parms, fv)
+       
+        % settings and initial guess
         rates0 = [150 1000 100];
-    %     cost = cfxc.find_CBrates(rates0, parms);
-
         fopt = optimset('display','iter');
     
-        % find the rates
-        rates = fminsearch(@(rates) cfxc.find_CBrates(rates, parms), rates0, fopt);
+        % find the rates for original model
+        CBrates = fminsearch(@(rates) cfxc.find_CBrates(rates, parms, fv), rates0, fopt);
 
         % rates
-        parms.CB.f = rates(1);
-        parms.CB.g(1) = parms.CB.f;
-        parms.CB.g(2:end) = rates(2:end);
+        parms.CB.f = CBrates(1);
+        parms.CB.g = CBrates;
 
-        % vector with forces
-        fv.FHill = linspace(0, parms.ce.Fmax * (0.95 * parms.ce.Fasymp));
-
-        % Hill-type
-        fv.vHill = parms.func.fv(1,  fv.FHill, 1, parms) / parms.ce.lceopt;
-
-        % Huxley
+        % Huxley-type
         fv.FCB = zeros(length(fv.vHill),2);
         [fv.FCB(:,1),fv.n,fv.FCB(:,2)] = cfxc.CB_force_velocity(fv.vHill, parms);
+        
+        % adjust rates to DM approximation
+        parms.CB.g(3) = fminsearch(@(CBrates) cfxc.find_DMrates(CBrates, parms, fv), CBrates(end), fopt);
 
+        % evaluate
+        [fv, parms] = cfxc.evaluate_DM(parms, fv, 1);
     end
     
-    function[parms] = get_DM_Xmax(parms, show)
-        % find Qs such that Qdot = 0, with alpha = 1 and r = 1
+    function[cost] = find_DMrates(rates, parms, fv)
+    
+        % only adjust the detachment rate in eccentric region
+        parms.CB.g(3) = rates;
+        
+        % isometric conditions
+        parms.exp.u = 0;
+        parms.type = 'crossbridge';
         parms.exp.a = 1; % at optimum length
         parms.exp.A = 1; % maximal excitation
-        parms.exp.u = 0;
-
-        % initial guess
-        X0 = [0.4077    0.2535    0.1788];
-
-        opt = optimset('display','none','TolFun',1e-8,'MaxFunEvals',1000);
-        parms.CB.Xmax = fminsearch(@(X) cfxc.find_steadystate(X, parms), X0, opt);
-        parms.CB.delta = parms.CB.Xmax(2) / parms.ce.Fmax;
-                
-        if show
-            [t,x] = ode113(@cfxc.dXfunc_shell, [0 .1], [0 0 0], [], parms);
-            n = cfxc.n_func(parms.CB.Xmax(1), parms.CB.Xmax(2), parms.CB.Xmax(3), parms.CB);
         
-            if ishandle(3), close(3);end
-            figure(3)
+        % isometric
+        opt = optimset('TolX',1e-5,'TolFun',1e-5);
+        parms.CB.Xmax = fminsearch(@(X) cfxc.find_steadystate(X, parms), parms.CB.Xmax, opt);
+        
+        % eccentric
+        id = fv.vHill>0 & fv.vHill < (parms.ce.vmaxrel/2);
+        vs = fv.vHill(id);
 
-            subplot(311);
-            plot(parms.CB.xi, parms.CB.f_func(parms)); hold on
-            plot(parms.CB.xi, parms.CB.g_func(parms),'--');
-            xlabel('Strain (h)'); ylabel('Rate (s^{-1})')
-            legend('Attachment','Detachment','location','best'); 
-            legend boxoff
+        for i = 1:length(vs)
+            parms.exp.u = vs(i) * 0.5 * parms.CB.s / parms.CB.h;
 
-            subplot(312);
-            plot(parms.CB.xi, n); hold on
-            xlabel('Strain (h)'); ylabel('n (a.u.)');
-
-            subplot(313);
-            plot(t,x); hold on
-            plot(t(end), parms.CB.Xmax, 'o','color',[.5 .5 .5], 'markerfacecolor', [.5 .5 .5])
-            xlabel('Time (s)'); ylabel('Q (a.u.)')
-            legend('Q_0','Q_1','Q_2','location','best'); 
-            legend boxoff
-            
-            titles = {'Rate functions', 'Isometric distribution', 'Isometric contraction'};
-            for i = 1:3
-                subplot(3,1,i); box off;
-                title(titles{i})
+            if i == 1, X0 = parms.CB.Xmax;
+            else,      X0 = Xmax(i-1,:);
             end
-            
-            set(gcf,'units','normalized','position', [.3 .15 .4 .7])
+
+            Xmax(i,:) = fminsearch(@(X) cfxc.find_steadystate(X, parms), X0, opt);
         end
+        
+        FCB_ecc = Xmax(:,2) / parms.CB.Xmax(2);
+        FHill_ecc = fv.FHill(id);
+        
+        % cost is sum-squared difference
+        cost = sum((FHill_ecc(:)-FCB_ecc(:)).^2);
+        
     end
     
-function[fv] = evaluate_DM(parms, fv, show)
+    
+function[fv, parms] = evaluate_DM(parms, fv, show)
 
     % isokinetic contraction DM model
-    opt = optimset('TolX',1e-5,'TolFun',1e-5);
+    opt = optimset('TolX',1e-7,'TolFun',1e-7);
     
     % test
     parms.type = 'crossbridge';
     parms.exp.a = 1; % at optimum length
     parms.exp.A = 1; % maximal excitation
-
+   
     for j = 1:2
         if j == 1
             vs = flip(fv.vHill(fv.vHill<0));
@@ -1243,7 +1229,21 @@ function[fv] = evaluate_DM(parms, fv, show)
                 X0 = Xmax(i-1,:);
             end
 
+            if j == 1
+            % simulate
+            [~,x] = ode113(@cfxc.dXfunc_shell, [0 .1], parms.CB.Xmax, [], parms);
+            Xmax(i,:) = x(end,:)';
+            
+            elseif j == 2
+            
+            % root-find
             Xmax(i,:) = fminsearch(@(X) cfxc.find_steadystate(X, parms), X0, opt);
+            end
+            
+            if i == 1
+                parms.CB.Xmax = Xmax(i,:);
+%                 parms.CB.delta = parms.CB.Xmax(2) / parms.ce.Fmax;
+            end
 
         end
 
@@ -1259,17 +1259,48 @@ function[fv] = evaluate_DM(parms, fv, show)
 
     if show
     
-        if ishandle(4), close(4);end
-        figure(4)
+        % simulate isometric
+        parms.exp.u = 0;
+        [t,x] = ode113(@cfxc.dXfunc_shell, [0 .1], [0 0 0], [], parms);
+        n = cfxc.n_func(parms.CB.Xmax(1), parms.CB.Xmax(2), parms.CB.Xmax(3), parms.CB);
 
-        plot(fv.vHill*parms.ce.lceopt, fv.FHill); hold on
-        plot(fv.vHill*parms.ce.lceopt, fv.FCB*parms.ce.Fmax);
-        xlabel('Velocity (m/s)'); 
-        ylabel('Force (N)')
+        if ishandle(1), close(1);end
+        figure(1)
+
+        subplot(221);
+        plot(parms.CB.xi, parms.CB.f_func(parms)); hold on
+        plot(parms.CB.xi, parms.CB.g_func(parms),'--');
+        xlabel('Strain (h)'); ylabel('Rate (s^{-1})')
+        legend('Attachment','Detachment','location','best'); 
+        legend boxoff
+
+        subplot(222);
+        plot(parms.CB.xi, n); hold on
+        xlabel('Strain (h)'); ylabel('n (a.u.)');
+
+        subplot(223);
+        plot(t,x); hold on
+        plot(t(end), parms.CB.Xmax, 'o','color',[.5 .5 .5], 'markerfacecolor', [.5 .5 .5])
+        xlabel('Time (s)'); ylabel('Q (a.u.)')
+        legend('Q_0','Q_1','Q_2','location','best'); 
+        legend boxoff
+        
+        subplot(224)
+        plot(fv.vHill, fv.FHill); hold on
+        plot(fv.vHill, fv.FCB);
+        xlim([-1 1/2]*parms.ce.vmaxrel)
+        xlabel('Velocity (l_{opt}/s)'); 
+        ylabel('Force (F_{max})')
         legend('Hill','CB','CB (2)','DM','location','best'); 
         legend boxoff
         box off
 
+        titles = {'Rate functions', 'Isometric distribution', 'Isometric contraction','Force-velocity'};
+        for i = 1:4
+        subplot(2,2,i); 
+        box off;
+        title(titles{i})
+        end
         title('Force-velocity')
         set(gcf,'units','normalized','position', [0 .3 .6 .4])
 
@@ -1281,11 +1312,11 @@ function[parms] = gen_funcs()
     parms.func.fce = @(L, parms) (L >= ((1-parms.ce.w) * parms.ce.lceopt) & L <= ((1+parms.ce.w) * parms.ce.lceopt))...
                      .* (parms.ce.c .* (L/parms.ce.lceopt).^2  - 2*parms.ce.c .* (L/parms.ce.lceopt) + parms.ce.c + 1);
                  
-    parms.func.fv = @(a,F,Fisom,parms) -parms.ce.lceopt .* ((Fisom + parms.ce.Arel.*a.^-.3) .* (parms.ce.vmaxrel*parms.ce.Arel) ./ ((F/(parms.ce.Fmax.*a)) + parms.ce.Arel.*a.^-.3) - (parms.ce.vmaxrel*parms.ce.Arel)) .* ...
-                           ((-parms.ce.lceopt .* ((Fisom + parms.ce.Arel.*a.^-.3) .* (parms.ce.vmaxrel*parms.ce.Arel) ./ ((F/(parms.ce.Fmax.*a)) + parms.ce.Arel.*a.^-.3) - (parms.ce.vmaxrel*parms.ce.Arel))) < 0) + ...
-         -parms.ce.lceopt .* (((parms.ce.vmaxrel*parms.ce.Arel) .* (Fisom + (-Fisom .* parms.ce.Fasymp))^2 / ((Fisom + parms.ce.Arel.*a.^-.3) .* parms.ce.Slopefactor)) ./ (((F)/(parms.ce.Fmax.*a)) + (-Fisom .* parms.ce.Fasymp)) - ...
-                               ((parms.ce.vmaxrel*parms.ce.Arel) .* (Fisom + (-Fisom .* parms.ce.Fasymp))^2 / ((Fisom + parms.ce.Arel.*a.^-.3) .* parms.ce.Slopefactor)) / (Fisom + (-Fisom .* parms.ce.Fasymp))) .* ...
-                           ((-parms.ce.lceopt .* ((Fisom + parms.ce.Arel.*a.^-.3) .* (parms.ce.vmaxrel*parms.ce.Arel) ./ ((F/(parms.ce.Fmax.*a)) + parms.ce.Arel.*a.^-.3) - (parms.ce.vmaxrel*parms.ce.Arel))) > 0);
+    parms.func.fv = @(a,F,Fisom,parms) -((Fisom + parms.ce.Arel.*a.^-.3) .* (parms.ce.vmaxrel*parms.ce.Arel) ./ ((F./a) + parms.ce.Arel.*a.^-.3) - (parms.ce.vmaxrel*parms.ce.Arel)) .* ...
+           ((-((Fisom + parms.ce.Arel.*a.^-.3) .* (parms.ce.vmaxrel*parms.ce.Arel) ./ ((F./a) + parms.ce.Arel.*a.^-.3) - (parms.ce.vmaxrel*parms.ce.Arel))) < 0) + ...
+            -(((parms.ce.vmaxrel*parms.ce.Arel) .* (Fisom + (-Fisom .* parms.ce.Fasymp))^2 / ((Fisom + parms.ce.Arel.*a.^-.3) .* parms.ce.Slopefactor)) ./ ((F./a) + (-Fisom .* parms.ce.Fasymp)) - ...
+                           ((parms.ce.vmaxrel*parms.ce.Arel) .* (Fisom + (-Fisom .* parms.ce.Fasymp))^2 / ((Fisom + parms.ce.Arel.*a.^-.3) .* parms.ce.Slopefactor)) / (Fisom + (-Fisom .* parms.ce.Fasymp))) .* ...
+                       ((-((Fisom + parms.ce.Arel.*a.^-.3) .* (parms.ce.vmaxrel*parms.ce.Arel) ./ ((F./a) + parms.ce.Arel.*a.^-.3) - (parms.ce.vmaxrel*parms.ce.Arel))) > 0);
 
     % SE force-length
     parms.func.fse = @(dlse_rel, parms) (dlse_rel<parms.see.sexm & dlse_rel > 0) .* (parms.see.sefm * 1/(exp(parms.see.sesh)-1) * (exp(parms.see.sesh/parms.see.sexm * dlse_rel)-1)) ...
@@ -1314,6 +1345,12 @@ end
   
 function[parms] = gen_parms(parms)
     
+    % geometry scaling
+    parms.CB.h = 12*10^-9; % [m], crossbridge reach
+    parms.CB.s = 2.64 * 10^-6;  % [m], sarcomere length
+    parms.CB.mu = 1/3;
+    parms.CB.scale_rates = @(u, rate, mu) rate * (mu + u*(1-mu)); 
+
     % CE force-length
     parms.ce.w = .56;
     parms.ce.c = -1/parms.ce.w^2;

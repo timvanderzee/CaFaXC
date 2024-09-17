@@ -281,6 +281,7 @@ if saveFig
 end
 
 %% Force-velocity (Fig 8)
+load('quad_parms.mat')
 % inspired by the experiment from Westing et al. (1990)
 % Acta Physiol Scand, 140, 17-22
 if ishandle(6), close(6); end; figure(6)
