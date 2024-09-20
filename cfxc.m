@@ -557,9 +557,9 @@ end
     % here we have length as a state
 
     %% retrieve states
-    Q0 = x(1); 
-    Q2 = x(2); 
-    lce = x(3); 
+    lce = x(1); 
+    Q0 = x(2); 
+    Q2 = x(3); 
     
     % determine force
     lse = parms.exp.lmtc - lce;
@@ -568,6 +568,7 @@ end
     Fp = parms.func.fpe(lce, parms);
     Fm = Ft - Fp;
     Q1 = Fm * parms.CB.delta; % note: delta = fmax/Fmax (omgekeerd)
+    
     % rate constants
     parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
     parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
@@ -591,10 +592,10 @@ end
     ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
 
     % calculate velocity that assures that forces are compatible at next time step
-      vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - (a * r * beta(2) - phi(2))/parms.CB.Xmax(2)) ...
+    vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - (a * r * beta(2) - phi(2))/parms.CB.Xmax(2)) ...
                  / (ks + kp + Q0/(parms.CB.Xmax(2)*gamma));
       
-      u = vcerel / gamma;
+    u = vcerel / gamma;
 
     if parms.set.no_tendon
       u = alpha * parms.exp.vmtc;
@@ -608,13 +609,11 @@ end
 
     %% state derivates
     Qd0 = a * r * beta(1) - phi(1);
-%     Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
     Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
-
     vce = vcerel * parms.ce.lceopt;
     
     % total state derivative vector
-    Qd = [Qd0; Qd2; vce];
+    Qd = [vce; Qd0; Qd2];
 
     end
     
@@ -1307,7 +1306,17 @@ function[fv, parms] = evaluate_DM(parms, fv, show)
     end
 end
   
-function[parms] = gen_funcs()
+function[parms] = gen_funcs(parms)
+    % crossbridge rate functions
+    parms.CB.f_func = @(parms) parms.CB.f(1) .* (parms.CB.xi>0 & parms.CB.xi<=1) .* parms.CB.xi;
+    
+    parms.CB.g_func = @(parms) parms.CB.g(1) .* (parms.CB.xi >= 0) .* parms.CB.xi + ...
+                           parms.CB.g(2) .* (parms.CB.xi < 0) + ...
+                           parms.CB.g(3) .* (parms.CB.xi >= 1) .* (parms.CB.xi - 1);
+                       
+                       
+    parms.CB.scale_rates = @(u, rate, mu) rate * (mu + u*(1-mu)); 
+        
     % CE force-length
     parms.func.fce = @(L, parms) (L >= ((1-parms.ce.w) * parms.ce.lceopt) & L <= ((1+parms.ce.w) * parms.ce.lceopt))...
                      .* (parms.ce.c .* (L/parms.ce.lceopt).^2  - 2*parms.ce.c .* (L/parms.ce.lceopt) + parms.ce.c + 1);
@@ -1344,12 +1353,16 @@ function[parms] = gen_funcs()
 end
   
 function[parms] = gen_parms(parms)
-    
+
+    parms.CB.analytical = 1;
+    parms.CB.Xmax = [1/2 1/4 1/6];
+    parms.CB.mu = 1;
+
     % geometry scaling
     parms.CB.h = 12*10^-9; % [m], crossbridge reach
     parms.CB.s = 2.64 * 10^-6;  % [m], sarcomere length
     parms.CB.mu = 1/3;
-    parms.CB.scale_rates = @(u, rate, mu) rate * (mu + u*(1-mu)); 
+    parms.CB.xi = linspace(-10,10,1000);
 
     % CE force-length
     parms.ce.w = .56;
