@@ -259,7 +259,7 @@ classdef cfxc < handle
 
     function[dX] = sim_muscle(t, x, parms)
         
-        dX = x;
+        dX = x(:);
         
 %       disp(t)
       Ca = x(1);
@@ -1354,16 +1354,22 @@ end
   
 function[parms] = gen_parms(parms)
 
+    % crossbridge
     parms.CB.analytical = 1;
-    parms.CB.Xmax = [1/2 1/4 1/6];
-    parms.CB.mu = 1;
-
-    % geometry scaling
-    parms.CB.h = 12*10^-9; % [m], crossbridge reach
-    parms.CB.s = 2.64 * 10^-6;  % [m], sarcomere length
+    parms.CB.f = 150; % initial value, will be fit
+    parms.CB.g = [150 1000 150];  % initial value, will be fit
     parms.CB.mu = 1/3;
     parms.CB.xi = linspace(-10,10,1000);
-
+    
+    % only for original Huxley-type model
+    parms.CB.nbins = 20000;
+    parms.CB.xi0 = linspace(-50,50,parms.CB.nbins);
+    
+    % scaling
+    parms.CB.h = 12*10^-9; % [m], crossbridge reach
+    parms.CB.s = 2.64 * 10^-6;  % [m], sarcomere length
+    parms.CB.Xmax = [1/2 1/4 1/6];
+    
     % CE force-length
     parms.ce.w = .56;
     parms.ce.c = -1/parms.ce.w^2;

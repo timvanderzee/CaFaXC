@@ -91,7 +91,7 @@ for s = ss
 
         if setts.step_input 
               parms.exp.u_func = @(t, parms) parms.exp.A .* (.5 + .5 * square(2*pi*parms.exp.freq*t)) .* (t < parms.exp.tstop);
-        else, parms.exp.u_func = @(t, parms) parms.exp.A .* (.5 + .5 * square(2*pi*parms.exp.freq*t, .5 * parms.exp.freq)) .* (t < parms.exp.tstop);
+        else, parms.exp.u_func = @(t, parms) parms.exp.A .* (.5 + .5 * square(2*pi*parms.exp.freq*t, .5 * parms.exp.freq)) .* (t < parms.exp.tstop); % assuming a pulse width of 5 ms
         end
 
         for m = ms
@@ -137,9 +137,6 @@ for s = ss
             [t,x] = ode23s(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
             toc
             disp(['Number of iterations: ', num2str(length(t))])
-            
-            figure(100)
-            plot(diff(t)); hold on
             
             dX = nan(size(x))';
             for i = 1:length(t)
