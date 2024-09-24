@@ -59,8 +59,6 @@ ylabels = {'Activation', 'Force (N)', 'Length (m)'};
 ss = 1:length(fignames);
 ms = 1:length(mtypes);
 
-
-
 for s = ss
     
     if ishandle(s), close(s); end 

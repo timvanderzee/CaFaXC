@@ -13,9 +13,9 @@ parms = cfxc.gen_funcs();
 parms = cfxc.gen_parms(parms);
 
 %% Hill-type force-velocity
-parms.ce.vmaxrel = 7; % [lopt/s] maximal contraction velocity
-parms.ce.Arel = .2; % [] curvature parameter
-parms.ce.Fasymp = 1.5; % eccentric asymptote
+parms.ce.vmaxrel    = 7; % [lopt/s] maximal contraction velocity
+parms.ce.Arel       = .2; % [] curvature parameter
+parms.ce.Fasymp     = 1.5; % eccentric asymptote
 
 % Hill-type force-velocity
 FHill = linspace(0, 0.99 * parms.ce.Fasymp); % force vector
