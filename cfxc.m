@@ -1155,8 +1155,8 @@ end
         fv.FCB = zeros(length(fv.vHill),2);
         [fv.FCB(:,1),fv.n,fv.FCB(:,2)] = cfxc.CB_force_velocity(fv.vHill, parms);
         
-        % adjust rates to DM approximation
-        parms.CB.g(3) = fminsearch(@(CBrates) cfxc.find_DMrates(CBrates, parms, fv), CBrates(end), fopt);
+        % adjust rates to DM approximation (optional)
+%         parms.CB.g(3) = fminsearch(@(CBrates) cfxc.find_DMrates(CBrates, parms, fv), CBrates(end), fopt);
 
         % evaluate
         [fv, parms] = cfxc.evaluate_DM(parms, fv, 1);

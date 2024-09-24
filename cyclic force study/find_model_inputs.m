@@ -31,6 +31,7 @@ parms = cfxc.calc_x0(parms);
 
 %% define kinematics and kinetics
 freqs = 0.5:0.1:4;
+freqs = .5:.5:2.5;
 % freqs = 2.5;
 phi = 20 * ones(length(freqs), N);
 lmtc = parms.func.lmtc(phi, parms);
@@ -148,7 +149,8 @@ end
 [C_opt_smooth] = cfxc.smoothen_solution(C_opt, prob);
 
 if save_output
-save('calcium_activations.mat','C_opt','R_opt','C_opt_smooth');
+    save_ca_name = fullfile(SAVEDIR,'calcium_activations.mat');
+    save(save_ca_name,'C_opt','R_opt','C_opt_smooth');
 end
 
 %% find excitation 
@@ -179,7 +181,8 @@ end
 [U_opt_smooth] = cfxc.smoothen_solution(U_opt, prob);
 
 if save_output
-save('muscle_excitations.mat','U_opt','C_opt','U_opt_smooth')
+    save_me_name = fullfile(SAVEDIR,'muscle_excitations.mat');
+    save(save_me_name,'U_opt','C_opt','U_opt_smooth')
 end
 
 

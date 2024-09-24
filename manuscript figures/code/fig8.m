@@ -47,18 +47,18 @@ R2(2) = calc_R2(twitch(:,1), twitch(:,2)/Fmax_exp, t, Frel);
 %% Force-velocity
 figure(1)
 TV = readmatrix('force_velocity.csv'); % torque-angular velocity
-F = TV(:,2) / parms.r;
+F = TV(:,2) / parms.mtc.r;
 Fmax = F(4); % max isometric
-v = TV(:,1)/180*pi * parms.r;
+v = TV(:,1)/180*pi * parms.mtc.r;
 
 subplot(321); plot(v, F/Fmax,'o','color',[.5 .5 .5], 'markerfacecolor',[.5 .5 .5],'markersize',5); box off; hold on
 xlabel('Velocity (m/s)');ylabel('Force'); title('Force-velocity')
 
 load('Fig8_force-velocity.mat');
-plot(-vall, Fss/parms.Fmax,'-','color',color(1,:),'linewidth',2)
+plot(-vall, Fss/parms.ce.Fmax,'-','color',color(1,:),'linewidth',2)
 xlim([-.3 .6])
 
-R2(3) = calc_R2(v, F/Fmax, -vall, Fss/parms.Fmax); 
+R2(3) = calc_R2(v, F/Fmax, -vall, Fss/parms.ce.Fmax); 
 
 %% Force-length
 FL = readmatrix('force_length.csv');
@@ -71,10 +71,10 @@ subplot(323);
 plot(L, Frel,'o','color',[.5 .5 .5], 'markerfacecolor',[.5 .5 .5],'markersize',5); hold on
 
 load('Fig8_force-length.mat')
-plot(Lmin, Fce_max/parms.Fmax,'-','color',color(1,:),'linewidth',2); box off
+plot(Lmin, Fce_max/parms.ce.Fmax,'-','color',color(1,:),'linewidth',2); box off
 ylim([0 1]); xlabel('Length (m)'); ylabel('Force'); title('Force-length')
 
-R2(4) = calc_R2(L, Frel, Lmin, Fce_max/parms.Fmax); 
+R2(4) = calc_R2(L, Frel, Lmin, Fce_max/parms.ce.Fmax); 
 
 %% Force-firing rate
 FF = readmatrix('force_frequency.csv');

@@ -42,6 +42,7 @@ parms.exp.vmtc = 0;
 parms.exp.stim_type = 'u_func';
 parms.exp.A = 1;
 parms.exp.tstop = .3; 
+parms.set.fixed_velocity = 0; % 
 
 % settings
 inp = [1 1 0 0];

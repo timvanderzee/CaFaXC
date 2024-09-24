@@ -101,6 +101,9 @@ Frel_exp = data(:,2)/Fmax_exp;
 Frel = (X(:,2)-X(1,2)) / Fmax;
 Crel = X(:,1) / Cmax;
 
+subplot(244);
+plot(t, Frel,'--','color',color(1,:),'linewidth',2);  hold on;
+
 subplot(248);
 plot(t, Frel,'--','color',color(1,:),'linewidth',2);  hold on;
 plot(t,X(:,4)/parms.A,':','color',color(1,:),'linewidth',1)
