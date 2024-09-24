@@ -409,7 +409,7 @@ end
         if length(x) > 4
             lce = x(5);
         else
-            lce = cfxc.calc_length_from_force(Q1/parms.CB.delta, parms);
+            lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
         end
 
         if parms.set.optimum
@@ -423,8 +423,7 @@ end
         ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
 
         % calculate velocity that assures that forces are compatible at next time step
-        u = (parms.CB.delta*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
-        % u = (Ldot - alpha*parms.kappa(alpha*Q1) * r * betha1 + alpha*parms.kappa(alpha*Q1)*phi1) / ((-Q0)*alpha*parms.kappa(alpha*Q1) - parms.gamma) % from Jer?
+        u = (parms.CB.Xmax(2)/parms.ce.Fmax*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.Xmax(2)/parms.ce.Fmax*ks/alpha + parms.CB.Xmax(2)/parms.ce.Fmax*kp/alpha + Q0);
 
         if parms.set.no_tendon
           u = alpha * parms.exp.vmtc;
@@ -485,7 +484,7 @@ end
     function[Qd] = crossbridge(r, x, parms)
     % Zahalak derivative function with 3 states (the Qs)
     % based on Zahalak & Ma (1990), J. Biomech. Eng.
-
+    
     %% retrieve states
     Q0 = x(1); 
     Q1 = x(2); 
@@ -508,7 +507,7 @@ end
     if length(x) > 3
         lce = x(4);
     else
-        lce = cfxc.calc_length_from_force(Q1/parms.CB.delta, parms);
+        lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
     end
 
     if parms.set.optimum
@@ -522,8 +521,7 @@ end
     ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
 
     % calculate velocity that assures that forces are compatible at next time step
-    u = (parms.CB.delta*ks * parms.exp.vmtc - a * r * beta(2) + phi(2)) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
-    %         u = (parms.CB.delta*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
+    u = (parms.CB.Xmax(2)/parms.ce.Fmax*ks * parms.exp.vmtc - a * r * beta(2) + phi(2)) ./ (parms.CB.Xmax(2)/parms.ce.Fmax*ks/alpha +parms.CB.Xmax(2)/parms.ce.Fmax*kp/alpha + Q0);
 
     if parms.set.no_tendon
       u = alpha * parms.exp.vmtc;
@@ -567,7 +565,7 @@ end
     Ft = parms.ce.Fmax * parms.func.fse(dlse_rel, parms);
     Fp = parms.func.fpe(lce, parms);
     Fm = Ft - Fp;
-    Q1 = Fm * parms.CB.delta; % note: delta = fmax/Fmax (omgekeerd)
+    Q1 = Fm * parms.CB.Xmax(2)/parms.ce.Fmax; % note: delta = fmax/Fmax (omgekeerd)
     
     % rate constants
     parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
@@ -635,7 +633,6 @@ end
       
       %% recalc some parms
       fmax = parms.CB.f / (2*(parms.CB.f + parms.CB.g(1)));
-      parms.CB.delta = fmax/parms.ce.Fmax;
       gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
       alpha = 1 / (gamma * parms.ce.lceopt);
       
@@ -666,7 +663,7 @@ end
       Q1dot = trapz(parms.CB.xi, ndot0 .* parms.CB.xi);
 
       % velocity calculation
-      u = (parms.CB.delta*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.delta*ks/alpha + parms.CB.delta*kp/alpha + Q0);
+      u = (fmax/parms.ce.Fmax*ks * parms.exp.vmtc - Q1dot) ./ (fmax/parms.ce.Fmax*ks/alpha + fmax/parms.ce.Fmax*kp/alpha + Q0);
 
       if parms.set.no_tendon
           u = alpha * parms.exp.vmtc;
@@ -883,7 +880,7 @@ end
       dlse_rel     = (lmtc_cur - lce-parms.see.lse0)/parms.see.lse0;
       force_tendon = parms.func.fse(dlse_rel,parms) * parms.ce.Fmax;
       q1           = state(4);
-      force_q1F    = q1/parms.CB.delta;
+      force_q1F    = q1/(parms.CB.Xmax(2)/parms.ce.Fmax);
 
       r_gyr     = 0.2;
       M         = 5;
@@ -939,7 +936,7 @@ end
       out.lse_frac_ex = (out.lse-parms.see.lse0)/parms.see.lse0;
       out.F_se        = parms.func.fse(out.lse_frac_ex,parms)*parms.ce.Fmax;
       out.F_pe        = parms.func.fpe(out.lce,parms);
-      out.F_mus       = out.Q1/parms.CB.delta;
+      out.F_mus       = out.Q1/(parms.CB.Xmax(2)/parms.ce.Fmax);
       out.F_diff      = out.F_se-out.F_mus-out.F_pe;
 
       figure();

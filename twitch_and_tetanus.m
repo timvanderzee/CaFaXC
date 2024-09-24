@@ -31,7 +31,7 @@ parms.ce.amin = 1e-3; % minimal excitation
 parms = cfxc.calc_x0(parms); 
 
 % needs to be stored here, because will be changed in next section
-parms.ce.tau(2) = .06;
+% parms.ce.tau(2) = .06;
 tau_original = parms.ce.tau;
 
 %% Twitch and tetanus (Figs 4, 5, 7)

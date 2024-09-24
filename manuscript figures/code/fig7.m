@@ -9,24 +9,28 @@ figure(1)
 color = get(gca,'colororder');
 
 %% Human data
+dt = .01;
+
 data = readmatrix('tetanus.csv');
 
 Fmax_exp = max(data(:,2));
 Frel_exp = data(:,2)/Fmax_exp;
-texp = data(:,1)-.055;
+texp1 = data(:,1)-.055 + dt;
 
 subplot(244); 
-plot(texp,Frel_exp,'-','linewidth',2,'color',[.8 .8 .8]); hold on
+plot(texp1,Frel_exp,'-','linewidth',2,'color',[.8 .8 .8]); hold on
 
 subplot(248); 
-plot(texp,Frel_exp,'-','linewidth',1,'color',[.5 .5 .5]); hold on
+plot(texp1,Frel_exp,'-','linewidth',1,'color',[.5 .5 .5]); hold on
 
-Frise = min(texp(Frel_exp>.9));
+Frise = min(texp1(Frel_exp>.9));
 
 data = readmatrix('twitch.csv');
-subplot(248); plot(data(:,1),data(:,2)/Fmax_exp,'-','linewidth',2,'color',[.8 .8 .8]); ylim([0 .5])
+texp = data(:,1) + dt;
 
-tpeak(1,1) = data(data(:,2)==max(data(:,2)),1);
+subplot(248); plot(texp,data(:,2)/Fmax_exp,'-','linewidth',2,'color',[.8 .8 .8]); ylim([0 .5])
+
+tpeak(1,1) = texp(data(:,2)==max(data(:,2)));
 Fpeak(1,1) = max(data(:,2)/Fmax_exp);
 
 %% Mouse tetanus data
@@ -86,7 +90,7 @@ Crel = X(:,1) / Cmax;
 % stats
 Rrise(1,1) = min(t(X(:,4)>.9));
 Frise(2,1) = min(t(Frel>.9));
-Fint = interp1(t, Frel, texp);
+Fint = interp1(t, Frel, texp1);
 R2F(1,1) = 1 - sum((Fint-Frel_exp).^2,[],'omitnan') / sum((Frel_exp - mean(Frel_exp)).^2,[],'omitnan');
 
 subplot(244);  

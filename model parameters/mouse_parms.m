@@ -6,7 +6,7 @@ cd ..
 addpath(genpath(cd))
 
 save_parms = 1;
-show_figs = 0;
+show_figs = 1;
 
 %% Length and force scaling
 load('quad_parms.mat') % start with quad parms
