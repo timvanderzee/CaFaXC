@@ -27,7 +27,7 @@ classdef cfxc < handle
       disp('Dynamic contraints ...')
       
       for i = 1:prob.N-1
-      
+     
           Xk = X(:,i+0);
           Xk_plus = X(:,i+1);
       
@@ -1138,133 +1138,132 @@ end
     %
     end
   
-    function[parms, fv] = fit_CB_on_Hill(parms, fv)
+    function[parms, fv] = fit_CB_on_Hill(parms, fv, type)
        
         % settings and initial guess
         rates0 = [150 1000 100];
-        fopt = optimset('display','iter');
+        fopt = optimset('display','iter', 'TolFun', 1e-1, 'TolX', 1e-1, 'MaxIter', 10);
     
-        % find the rates for original model
-        CBrates = fminsearch(@(rates) cfxc.find_CBrates(rates, parms, fv), rates0, fopt);
+        if strcmp(type, 'fit_CB') || strcmp(type, 'fit_DM')
+            % find the rates for original model
+            CBrates = fminsearch(@(rates) cfxc.find_CBrates(rates, parms, fv), rates0, fopt);
 
-        % rates
-        parms.CB.f = CBrates(1);
-        parms.CB.g = CBrates;
+            % rates
+            parms.CB.f = CBrates(1);
+            parms.CB.g = CBrates;
+        
+        end
 
         % Huxley-type
         fv.FCB = zeros(length(fv.vHill),2);
         [fv.FCB(:,1),fv.n,fv.FCB(:,2)] = cfxc.CB_force_velocity(fv.vHill, parms);
         
-        % adjust rates to DM approximation (optional)
-%         parms.CB.g(3) = fminsearch(@(CBrates) cfxc.find_DMrates(CBrates, parms, fv), CBrates(end), fopt);
+        if strcmp(type, 'fit_DM')
+            % adjust rates to DM approximation (optional)
+            DMrates = fminsearch(@(CBrates) cfxc.find_DMrates(CBrates, parms, fv), CBrates, fopt);
 
+            % rates
+            parms.CB.f = DMrates(1);
+            parms.CB.g = DMrates;
+        end
+    
         % evaluate
-        [fv, parms] = cfxc.evaluate_DM(parms, fv, 1);
+        [fv.FCB(:,3), parms] = cfxc.evaluate_DM(fv.vHill, parms);
     end
     
     function[cost] = find_DMrates(rates, parms, fv)
     
-        % only adjust the detachment rate in eccentric region
-        parms.CB.g(3) = rates;
+        parms.CB.f = rates(1);
+        parms.CB.g = rates;
+              
+        % only consider a portion
+        ID = 1:2:length(fv.vHill);
+        vHill = fv.vHill(ID);
         
-        % isometric conditions
-        parms.exp.u = 0;
-        parms.type = 'crossbridge';
-        parms.exp.a = 1; % at optimum length
-        parms.exp.A = 1; % maximal excitation
-        
-        % isometric
-        opt = optimset('TolX',1e-5,'TolFun',1e-5);
-        parms.CB.Xmax = fminsearch(@(X) cfxc.find_steadystate(X, parms), parms.CB.Xmax, opt);
-        
-        % eccentric
-        id = fv.vHill>0 & fv.vHill < (parms.ce.vmaxrel/2);
-        vs = fv.vHill(id);
-
-        for i = 1:length(vs)
-            parms.exp.u = vs(i) * 0.5 * parms.CB.s / parms.CB.h;
-
-            if i == 1, X0 = parms.CB.Xmax;
-            else,      X0 = Xmax(i-1,:);
-            end
-
-            Xmax(i,:) = fminsearch(@(X) cfxc.find_steadystate(X, parms), X0, opt);
-        end
-        
-        FCB_ecc = Xmax(:,2) / parms.CB.Xmax(2);
-        FHill_ecc = fv.FHill(id);
+        % get DM force
+        FCB = cfxc.evaluate_DM(vHill, parms);
         
         % cost is sum-squared difference
-        cost = sum((FHill_ecc(:)-FCB_ecc(:)).^2);
+        cost = sum((fv.FHill(ID)-FCB').^2);
         
     end
     
-    
-function[fv, parms] = evaluate_DM(parms, fv, show)
+   
+function[FCB, parms] = evaluate_DM(vHill, parms)
 
-    % isokinetic contraction DM model
-    opt = optimset('TolX',1e-7,'TolFun',1e-7);
-    
-    % test
+    % non-linear inequality constraint
+    nlincon_ineq = @(X) (X(2)/X(1))^2 - X(3)/X(1); % < 0
+    nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
+    LB = [1e-6 -inf -inf]; % Q0 can't be 0
+
+    % isometric conditions
+    parms.exp.u = 0;
     parms.type = 'crossbridge';
     parms.exp.a = 1; % at optimum length
     parms.exp.A = 1; % maximal excitation
-   
-    for j = 1:2
-        if j == 1
-            vs = flip(fv.vHill(fv.vHill<0));
-        else
-            vs = fv.vHill(fv.vHill>=0);
+
+    % isometric
+    opt = optimset('Display','off');
+    X0 = [1/2 1/4 1/6];
+    parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB,[],nlincon_func, opt);
+
+    % concentric
+    id = vHill<=0;
+    vs = flip(vHill(id));
+
+    Xmax = nan(length(vs),3);
+    cost = nan(length(vs), 1);
+
+    for i = 1:length(vs)
+        parms.exp.u = vs(i) * 0.5 * parms.CB.s / parms.CB.h;
+
+        if i == 1, X0 = parms.CB.Xmax;
+        else,      X0 = Xmax(i-1,:);
         end
 
-        Xmax = nan(length(vs),3);
-        for i = 1:length(vs)
+        % need to use fmincon because of nonlinear constraints violated with fminsearch
+        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB,[],nlincon_func, opt);
 
-            parms.exp.u = vs(i) * 0.5 * parms.CB.s / parms.CB.h;
-
-            if i == 1
-                X0 = parms.CB.Xmax;
-            else
-                X0 = Xmax(i-1,:);
-            end
-
-            if j == 1
-            % simulate
-            [~,x] = ode113(@cfxc.dXfunc_shell, [0 .1], parms.CB.Xmax, [], parms);
-            Xmax(i,:) = x(end,:)';
-            
-            elseif j == 2
-            
-            % root-find
-            Xmax(i,:) = fminsearch(@(X) cfxc.find_steadystate(X, parms), X0, opt);
-            end
-            
-            if i == 1
-                parms.CB.Xmax = Xmax(i,:);
-%                 parms.CB.delta = parms.CB.Xmax(2) / parms.ce.Fmax;
-            end
-
-        end
-
-        if j == 1
-            Xmaxs = flip(Xmax);
-        else
-            Xmaxs = [Xmaxs; Xmax];
-        end
+        cost(i) = cfxc.find_steadystate(Xmax(i,:), parms);
     end
 
-    % DM model force-velocity
-    fv.FCB(:,3) = Xmaxs(:,2)/parms.CB.Xmax(2);
+    FCB_con = flip(Xmax(:,2)) / parms.CB.Xmax(2);
 
-    if show
-    
+    % eccentric
+    id = vHill>0;
+    vs = vHill(id);
+
+    Xmax = nan(length(vs),3);
+    cost = nan(length(vs), 1);
+    for i = 1:length(vs)
+        parms.exp.u = vs(i) * 0.5 * parms.CB.s / parms.CB.h;
+
+        if i == 1, X0 = parms.CB.Xmax;
+        else,      X0 = Xmax(i-1,:);
+        end
+
+        % need to use fmincon because of nonlinear constraints violated with fminsearch
+        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB,[],nlincon_func, opt);
+
+        cost(i) = cfxc.find_steadystate(Xmax(i,:), parms);
+    end
+
+    FCB_ecc = Xmax(:,2) / parms.CB.Xmax(2);
+
+    % combine concentric and eccentric
+    FCB = [FCB_con; FCB_ecc];
+end
+
+function[] = compare_fv(fv, parms)
+
         % simulate isometric
         parms.exp.u = 0;
+        parms.exp.A = 1;
+        parms.exp.a = 1;
+        parms.type = 'crossbridge';
+        
         [t,x] = ode113(@cfxc.dXfunc_shell, [0 .1], [0 0 0], [], parms);
         n = cfxc.n_func(parms.CB.Xmax(1), parms.CB.Xmax(2), parms.CB.Xmax(3), parms.CB);
-
-        if ishandle(1), close(1);end
-        figure(1)
 
         subplot(221);
         plot(parms.CB.xi, parms.CB.f_func(parms)); hold on
@@ -1303,9 +1302,9 @@ function[fv, parms] = evaluate_DM(parms, fv, show)
         title('Force-velocity')
         set(gcf,'units','normalized','position', [0 .3 .6 .4])
 
-    end
+
 end
-  
+
 function[parms] = gen_funcs(parms)
     % crossbridge rate functions
     parms.CB.f_func = @(parms) parms.CB.f(1) .* (parms.CB.xi>0 & parms.CB.xi<=1) .* parms.CB.xi;

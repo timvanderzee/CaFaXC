@@ -52,7 +52,6 @@ parms.set.no_tendon = 1;
 Ca = x1(:,1);
 Fa = x1(:,2);
 F = x1(:,4)/parms.CB.Xmax(2);
-
 F2 = x2(:,4)/parms.CB.Xmax(2);
 
 Trise = [min(t1(Ca > .9)) min(t1(Fa > .9))  min(t2(F2 > .9)) min(t1(F > .9))];
@@ -64,7 +63,8 @@ plot(t2, F2);
 plot(t1, F);
 yline(0.9,'k--')
 
-legend('Calcium','Facilitation','Force without tendon','Force','location','best'); legend boxoff
+legend('Calcium','Facilitation','Force without tendon','Force','location','best'); 
+legend boxoff
 xlabel('Time (s)'); ylabel('State (a.u.)');
 
 %% Cyclic force production (Fig 8)
@@ -288,9 +288,11 @@ if ishandle(6), close(6); end; figure(6)
 % time the muscle is held isometric before shortening is allowed. not sure
 % whether Westing is doing this, other should be set to 0. but other
 % experiments may have a hold period before releasing
-tiso = .1; % [s]
+tiso = 1; % [s]
 
-vall = (-parms.ce.vmaxrel:.3:(parms.ce.vmaxrel/2)) * parms.ce.lceopt;
+vall = (-parms.ce.vmaxrel:.5:(parms.ce.vmaxrel/2)) * parms.ce.lceopt;
+vall = sort(unique([vall 0])); % make sure to include 0
+
 Fss = nan(size(vall));
 colors = parula(length(vall));
 
@@ -307,15 +309,23 @@ parms.CB.analytical = 1;
 parms.set.odeopt = odeset('maxstep',1e-3);
         
 k = 0;
+
+% isometric angle (yielding optimum length)
+phi_iso = 80; % [deg]
+
+% angle excursion
+dphi = 45; % [deg]
+
 for c = 1:3
+
     if c == 1 % concentric 
-        parms.exp.phi = 90;
+        parms.exp.phi = 120;
         vs = vall(vall<0);
     elseif c == 2 % isometric
-        parms.exp.phi = 60;
+        parms.exp.phi = phi_iso;
         vs = 0; 
     elseif c == 3 % eccentric
-        parms.exp.phi = 10;
+        parms.exp.phi = 40;
         vs = vall(vall>0);
     end
     
@@ -342,12 +352,15 @@ for j = 1:length(vs)
     % isokinetic phase
     parms.exp.vmtc = vs(j);    
     phidot = parms.exp.vmtc / parms.mtc.r * 180/pi;  
-    tmax = min([(60-parms.exp.phi) / phidot, 1.5]);
+    tmax = min([abs(dphi / phidot), 1.5]);
 
     [t1,x1] = ode113(@cfxc.sim_muscle, [0 tmax], x0(end,:), parms.set.odeopt, parms);
 
-    t = [t0; t1+t0(end)];
-    x = [x0; x1];
+%     t = [t0; t1+t0(end)];
+%     x = [x0; x1];
+
+    t = t1;
+    x = x1;
 
     Ca = x(:,1);
     Fac = x(:,2);
@@ -401,20 +414,21 @@ end
 set(gcf,'units','normalized','position', [0 .3 .6 .4])
 
 
-% summary figure
+%% summary figure
 if ishandle(7), close(7); end; figure(7);
 color = get(gca,'colororder');
 
 % Hill-type force-velocity
 parms.Fasymp = 1.5;
-Fse = linspace(0,parms.Fasymp*parms.ce.Fmax,1000);
-Fisom = 1; a = 1;
+Fse = linspace(0,parms.Fasymp,1000);
+Fisom = 1; 
+a = 1;
 Vce = parms.func.fv(a, Fse, Fisom, parms);
 
 plot(vall, Fss,'-','linewidth',2,'color',color(1,:),'markerfacecolor',color(1,:),'markersize',5); hold on; box off;
-plot(Vce, Fse,'--'); 
-plot(fv.vHill*parms.ce.lceopt, fv.FCB*parms.ce.Fmax,':')
-legend('CaFaXC','Huxley','Hill','location','best')
+plot(Vce*parms.ce.lceopt, Fse * parms.ce.Fmax,'--'); 
+plot(fv.vHill*parms.ce.lceopt, fv.FCB(:,[1 3])*parms.ce.Fmax,':')
+legend('CaFaXC','Hill','CB (Huxley)','CB (DM)','location','best')
 legend boxoff
 
 axis([-parms.ce.vmaxrel*parms.ce.lceopt .5*parms.ce.vmaxrel*parms.ce.lceopt 0 2*parms.ce.Fmax])

@@ -13,8 +13,9 @@ parms = cfxc.gen_funcs();
 parms = cfxc.gen_parms(parms);
 
 %% Hill-type force-velocity
-parms.ce.vmaxrel = 6; % [lopt/s] maximal contraction velocity
+parms.ce.vmaxrel = 7; % [lopt/s] maximal contraction velocity
 parms.ce.Arel = .2; % [] curvature parameter
+parms.ce.Fasymp = 1.5; % eccentric asymptote
 
 % Hill-type force-velocity
 FHill = linspace(0, 0.99 * parms.ce.Fasymp); % force vector
@@ -25,8 +26,13 @@ fv.vHill = linspace(-parms.ce.vmaxrel, parms.ce.vmaxrel/2);
 fv.FHill = interp1(vHill, FHill, fv.vHill);
 
 %% fit  crossbridge model rates on Hill-type force-velocity relation
-% analytical expressions Hill-type and Huxley-type force-velocity relations
-[parms, fv] = cfxc.fit_CB_on_Hill(parms, fv);
+% rates used in the paper
+parms.CB.g = [170 1388 78];
+parms.CB.f = 170;
+
+% option to refit
+[parms, fv] = cfxc.fit_CB_on_Hill(parms, fv,[]);
+cfxc.compare_fv(fv, parms)
 
 %% CE force-length
 parms.ce.Fmax = 4779; % [N]
@@ -72,9 +78,9 @@ parms.set.odeopt = odeset('maxstep',1e-3);
 
 %% activation and force facilitation dynamics
 clc
-load('quad_parms.mat')
+% load('quad_parms.mat')
 parms.ce.tau = [.002 .06]; % [s], forward and backward activation dynamics
-parms.ce.tauR = [.05 .02]; % [s], forward and backward force facilitation dynamics
+parms.ce.tauR = [.06 .02]; % [s], forward and backward force facilitation dynamics
 
 % experimental observations
 TTP = .1; % [s] time-to-peak (twitch)
@@ -111,7 +117,7 @@ for i = 1:2
     end
         Frel = (Fse-Fmin)/Fmax;
         
-    plot(t, (Fse-Fmin)/Fmax); hold on
+        plot(t, (Fse-Fmin)/Fmax); hold on
     
     if i == 1
         x1 = t(find(Frel > .9, 1));
@@ -136,13 +142,13 @@ data = [TTP T2T TTP + HRT];
 cost = sum(([x2 y2 x3] - data).^2);
 
 %%
-parms.x0 = X0;
-r0 = [parms.ce.tau(2) parms.ce.tauR];
-R = fminsearch(@(X) costfun(X, data, parms), r0);
-
-%%
-parms.ce.tau(2) = R(1);
-parms.ce.tauR = R(2:3);
+% parms.x0 = X0;
+% r0 = [parms.ce.tau(2) parms.ce.tauR];
+% R = fminsearch(@(X) costfun(X, data, parms), r0);
+% 
+% %%
+% parms.ce.tau(2) = R(1);
+% parms.ce.tauR = R(2:3);
 
 %% saving
 if save_parms
@@ -193,6 +199,7 @@ X = [x2 y2 x3];
 
 cost = sum((X - Y).^2);
 
+figure(100)
 plot(ti, Fi, '-', X(1), X(2), 'x', X(3), .5*X(2), 'x', ...
                   Y(1), Y(2), 'o', Y(3), .5*Y(2), 'o');  
 

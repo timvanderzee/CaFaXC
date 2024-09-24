@@ -9,7 +9,6 @@ addpath(genpath(cfxcpath));
 import casadi.*
 
 %% set up constants. 
-
 % save directoy
 SAVEDIR = fullfile(cfxcpath,'cyclic force study','inputs');
 % nodes for collocation.
@@ -118,8 +117,6 @@ if save_output
 save_xr_name = fullfile(SAVEDIR,'crossbridge_activations_all.mat');
 save(save_xr_name,'X_opt','R_opt');
 end
-% load(['crossbridge_activations.mat'],'X_opt','R_opt')
-% R_opt = Rc;
 
 %% find facilitation 
 parms.type = 'facilitation';
