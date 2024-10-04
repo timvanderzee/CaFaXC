@@ -261,7 +261,7 @@ classdef cfxc < handle
         
         dX = x(:);
         
-      disp(t)
+%       disp(t)
       Ca = x(1);
 
       if strcmp(parms.exp.stim_type,'u_func')
@@ -514,19 +514,10 @@ end
         a = parms.exp.a; % in case you assume optimum length
     else, a = parms.func.fce(lce, parms); % in case you use force-length relation
     end
-
-    % determine elastic stiffnesses
-    dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
-    kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
-    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
-
-    % calculate velocity that assures that forces are compatible at next time step
-    vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - (a * r * beta(2) - phi(2))/parms.CB.Xmax(2)) ...
-                 / (ks + kp + Q0/(parms.CB.Xmax(2)*gamma));
     
-    % back to crossbridge
-    u = vcerel / gamma;
-    vce = vcerel * parms.ce.lceopt;
+    % calculate velocity
+    Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
+    [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
     
     if parms.set.no_tendon
       u = alpha * parms.exp.vmtc;
@@ -562,7 +553,7 @@ end
     Q0 = x(2); 
     Q2 = x(3); 
     
-    % determine force
+    % determine force from length
     lse = parms.exp.lmtc - lce;
     dlse_rel = (lse - parms.see.lse0) / parms.see.lse0;
     Ft = parms.ce.Fmax * parms.func.fse(dlse_rel, parms);
@@ -587,16 +578,9 @@ end
     else, a = parms.func.fce(lce, parms); % in case you use force-length relation
     end
 
-    % determine elastic stiffnesses
-    kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
-    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
-
-    % calculate velocity that assures that forces are compatible at next time step
-    vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - (a * r * beta(2) - phi(2))/parms.CB.Xmax(2)) ...
-                 / (ks + kp + Q0/(parms.CB.Xmax(2)*gamma));
-    
-    % back to crossbridge
-    u = vcerel / gamma;
+    % calculate velocity
+    Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
+    [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
 
     if parms.set.no_tendon
         alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
@@ -612,7 +596,6 @@ end
     %% state derivates
     Qd0 = a * r * beta(1) - phi(1);
     Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
-    vce = vcerel * parms.ce.lceopt;
     
     % total state derivative vector
     Qd = [vce; Qd0; Qd2];
@@ -666,18 +649,20 @@ end
     Q0 = trapz(parms.CB.xi, n);
     Q1dot = trapz(parms.CB.xi, ndot0 .* parms.CB.xi);
 
-    % determine elastic stiffnesses
-    dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
-    kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
-    ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
-
-    % calculate velocity that assures that forces are compatible at next time step
-    vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - Q1dot/fmax) ...
-         / (ks + kp + Q0/(fmax*gamma));
-
-    % back to crossbridge
-%     u = vcerel / gamma;
-    vce = vcerel * parms.ce.lceopt;
+    vce = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, fmax, parms);
+    
+%     % determine elastic stiffnesses
+%     dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
+%     kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
+%     ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
+% 
+%     % calculate velocity that assures that forces are compatible at next time step
+%     vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - Q1dot/fmax) ...
+%          / (ks + kp + Q0/(fmax*gamma));
+% 
+%     % back to crossbridge
+% %     u = vcerel / gamma;
+%     vce = vcerel * parms.ce.lceopt;
 
       
 %       % velocity calculation
@@ -701,6 +686,25 @@ end
       Qd = [ndot(:); vce(:)];
 
     end
+    
+    function[vce, u] = enforce_forcerate_constraint(lce, Q0, Q1dot, fmax, parms)
+        
+        gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+       
+        % determine elastic stiffnesses
+        dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
+        kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
+        ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
+
+        % calculate velocity that assures that forces are compatible at next time step
+        vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - Q1dot/fmax) ...
+        / (ks + kp + Q0/(fmax*gamma));
+
+        % back to crossbridge
+        u = vcerel / gamma;
+        vce = vcerel * parms.ce.lceopt;
+    end
+    
 
     function[Vce] = Hill_type(a, lce, parms)
 
