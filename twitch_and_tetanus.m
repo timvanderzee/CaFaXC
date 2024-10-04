@@ -134,56 +134,19 @@ for s = ss
             end
 
             % simulate
+            disp([fignames{s}, ' ', parms.type, ' model ']);
             tic
             [t,x] = ode113(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
-            toc
-            disp(['Number of iterations: ', num2str(length(t))])
+            d = toc;
             
-            dX = nan(size(x))';
-            for i = 1:length(t)
-                dX(:,i) = cfxc.sim_muscle(t(i), x(i,:), parms);
-            end
-            
-            vce = dX(end,:)';
-            
-            % states
-            Ca = x(:,1);
-            lce = x(:,end);
-            Fpe = parms.func.fpe(lce, parms);
-            lse = parms.exp.lmtc - lce;
-            Fse = parms.func.fse((lse-parms.see.lse0)/parms.see.lse0, parms) * parms.ce.Fmax;
-            Fce2 = Fse - Fpe;
-            
-            X = [Ca Fse lce];
-            
-            % contractile element force
-            if strcmp(parms.type,'crossbridge')
-                Fce = x(:,3) /(parms.CB.Xmax(2)/parms.ce.Fmax);
-            elseif  strcmp(parms.type,'CaFaXC')
-                Fce = x(:,4) /(parms.CB.Xmax(2)/parms.ce.Fmax);
-                X(:,4) = x(:,2);
-            elseif  strcmp(parms.type,'Hill-type')
-                Fce = Fse - Fpe;
-            elseif strcmp(parms.type,'Huxley')
-                gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
-                alpha = 1 / (gamma * parms.ce.lceopt);
-                dX = (lce - parms.exp.l0) * alpha;
-                n = x(:,2:end-1);
-                fmax_Huxley = parms.CB.f / (2*(parms.CB.f + parms.CB.g(1)));
-                 
-                Fce = nan(size(Fse));
-                for i = 1:length(t)
-                    xi = parms.CB.xi0(:) + dX(i);
-                    Fce(i) = trapz(xi(:), xi(:) .* n(i,:)') / fmax_Huxley * parms.ce.Fmax;
-                end
-            end
-            
-            Fpeak(c,m) = max(Fse) - min(Fse);
+            [y,X] = cfxc.get_model_output(t, x, parms);
+       
+            Fpeak(c,m) = max(y.Fse) - min(y.Fse);
 
             figure(s)
-            subplot(241); plot(lse, Fse,'.','color',color(m,:)); 
-            subplot(242); plot(lce, Fpe,'.','color',color(m,:)); 
-            subplot(243); plot(lce, parms.func.fce(lce,parms)*parms.ce.Fmax,'.','color',color(m,:)); 
+            subplot(241); plot(y.lse, y.Fse,'.','color',color(m,:)); 
+            subplot(242); plot(y.lce, y.Fpe,'.','color',color(m,:)); 
+            subplot(243); plot(y.lce, parms.func.fce(y.lce,parms)*parms.ce.Fmax,'.','color',color(m,:)); 
 
             for i = 1:3
                 subplot(2,4,i+4); hold on
@@ -194,35 +157,37 @@ for s = ss
             end
             
             subplot(244)
-            plot(vce/parms.ce.lceopt, Fce/parms.ce.Fmax, 'color',color(m,:));
+            plot(y.vce/parms.ce.lceopt, y.Fce/parms.ce.Fmax, 'color',color(m,:));
             
             subplot(248);
-            plot(t, vce, 'color',color(m,:)); 
+            plot(t, y.vce, 'color',color(m,:)); 
             title('CE velocity'); hold on
             xlabel('Time (s)'); 
             ylabel('Velocity (m/s)');
 
             subplot(246);
-            plot(t, Fpe,'--','color',color(m,:));
-            plot(t, Fpe + Fce,'k:')
+            plot(t, y.Fpe,'--','color',color(m,:));
+            plot(t, y.Fpe + y.Fce,'k:')
             ylim([0 parms.ce.Fmax])
 
-            Fserel = (Fse - Fse(1)) / max((Fse - Fse(1)));
+            Fserel = (y.Fse - y.Fse(1)) / max((y.Fse - y.Fse(1)));
             
             
             if ~(strcmp(parms.type,'CaFaXC') && (s == 2 || s == 4)) % force-based force facilitation doesn't make sense
                 
                 if s < 3 % twitch
                     t90 = min(t(Fserel > .9));
-                    disp([fignames{s}, ' ', parms.type, ' model 90% rise time = ', num2str(t90*1000,3), ' ms'])
+                    disp(['90% rise time = ', num2str(t90*1000,3), ' ms'])
                 
                 else
                     tpeak = t(Fserel == max(Fserel));
-                    disp([fignames{s}, ' ', parms.type, ' model time to peak = ', num2str(tpeak*1000,3), ' ms'])
+                    disp(['Time to peak = ', num2str(tpeak*1000,3), ' ms'])
                 end
                 
             end
-
+            
+        disp(['Simulation time: ', num2str(round(d, 3)), ' s - Integration steps: ', num2str(length(t))])
+            
         % saving
         save_as_Fig(saveFig, savedir, t, X, setts, parms);
         disp(' ')

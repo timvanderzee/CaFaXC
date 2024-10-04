@@ -318,6 +318,49 @@ classdef cfxc < handle
       end
     end
     
+    function[y,X] = get_model_output(t, x, parms)
+        
+         dX = nan(size(x))';
+        
+         for i = 1:size(x,1)
+            dX(:,i) = cfxc.sim_muscle(t(i), x(i,:), parms);
+        end
+
+        y.vce = dX(end,:)';
+
+        % states
+        y.Ca = x(:,1);
+        y.lce = x(:,end);
+        y.Fpe = parms.func.fpe(y.lce, parms);
+        y.lse = parms.exp.lmtc - y.lce;
+        y.Fse = parms.func.fse((y.lse-parms.see.lse0)/parms.see.lse0, parms) * parms.ce.Fmax;
+        y.Fce2 = y.Fse - y.Fpe;
+
+        X = [y.Ca y.Fse y.lce];
+
+        % contractile element force
+        if strcmp(parms.type,'crossbridge')
+            y.Fce = x(:,3) /(parms.CB.Xmax(2)/parms.ce.Fmax);
+        elseif  strcmp(parms.type,'CaFaXC')
+            y.Fce = x(:,4) /(parms.CB.Xmax(2)/parms.ce.Fmax);
+            X(:,4) = x(:,2);
+        elseif  strcmp(parms.type,'Hill-type')
+            y.Fce = y.Fse - y.Fpe;
+        elseif strcmp(parms.type,'Huxley')
+            gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+            alpha = 1 / (gamma * parms.ce.lceopt);
+            dX = (y.lce - parms.exp.l0) * alpha;
+            n = x(:,2:end-1);
+            fmax_Huxley = parms.CB.f / (2*(parms.CB.f + parms.CB.g(1)));
+
+            y.Fce = nan(size(Fse));
+            for i = 1:size(x,1)
+                xi = parms.CB.xi0(:) + dX(i);
+                y.Fce(i) = trapz(xi(:), xi(:) .* n(i,:)') / fmax_Huxley * parms.ce.Fmax;
+            end
+        end
+    end
+    
 function[Xd] = dXfunc(U, X, parms)
       U = U .* (U > 0);
       X = X .* (X > 0);
