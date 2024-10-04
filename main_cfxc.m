@@ -55,7 +55,7 @@ F = x1(:,4)/parms.CB.Xmax(2);
 F2 = x2(:,4)/parms.CB.Xmax(2);
 
 Trise = [min(t1(Ca > .9)) min(t1(Fa > .9))  min(t2(F2 > .9)) min(t1(F > .9))];
-cont = round(100*[Trise(1) diff(Trise)] / Trise(end));
+cont = round(100*[Trise(1) diff(Trise)] / Trise(end),2);
 
 if ishandle(1), close(1); end; figure(1)
 plot(t1,[Ca Fa]); hold on; box off

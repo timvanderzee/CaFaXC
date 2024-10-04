@@ -44,7 +44,7 @@ parms.CB.g = [287 2049 161];
 parms.CB.f = 287;
 
 % option to refit
-[parms, fv] = cfxc.fit_CB_on_Hill(parms, fv,[]);
+[parms, fv] = cfxc.fit_CB_on_Hill(parms, fv,'fit_CB');
 cfxc.compare_fv(fv, parms)
 
 %% Evaluate torque-angle relation

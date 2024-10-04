@@ -10,6 +10,7 @@ color = get(gca,'colororder');
 
 %% Human data
 dt = .01;
+dt = 0;
 
 data = readmatrix('tetanus.csv');
 

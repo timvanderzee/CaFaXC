@@ -13,7 +13,7 @@ parms = cfxc.gen_funcs();
 parms = cfxc.gen_parms(parms);
 
 %% Hill-type force-velocity
-parms.ce.vmaxrel    = 7; % [lopt/s] maximal contraction velocity
+parms.ce.vmaxrel    = 6; % [lopt/s] maximal contraction velocity
 parms.ce.Arel       = .2; % [] curvature parameter
 parms.ce.Fasymp     = 1.5; % eccentric asymptote
 
@@ -27,11 +27,12 @@ fv.FHill = interp1(vHill, FHill, fv.vHill);
 
 %% fit  crossbridge model rates on Hill-type force-velocity relation
 % rates used in the paper
-parms.CB.g = [170 1388 78];
-parms.CB.f = 170;
+parms.CB.g = [140 1388 78];
+parms.CB.f = 140;
 
 % option to refit
-[parms, fv] = cfxc.fit_CB_on_Hill(parms, fv,[]);
+fit_CB = [];
+[parms, fv] = cfxc.fit_CB_on_Hill(parms, fv,fit_CB);
 cfxc.compare_fv(fv, parms)
 
 %% CE force-length
@@ -79,7 +80,7 @@ parms.set.odeopt = odeset('maxstep',1e-3);
 %% activation and force facilitation dynamics
 clc
 % load('quad_parms.mat')
-parms.ce.tau = [.002 .06]; % [s], forward and backward activation dynamics
+parms.ce.tau = [.002 .05]; % [s], forward and backward activation dynamics
 parms.ce.tauR = [.06 .02]; % [s], forward and backward force facilitation dynamics
 
 % experimental observations

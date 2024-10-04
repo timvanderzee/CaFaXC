@@ -31,7 +31,6 @@ parms.ce.amin = 1e-3; % minimal excitation
 parms = cfxc.calc_x0(parms); 
 
 % needs to be stored here, because will be changed in next section
-% parms.ce.tau(2) = .06;
 tau_original = parms.ce.tau;
 
 %% Twitch and tetanus (Figs 4, 5, 7)
@@ -51,7 +50,7 @@ sla = [0 1 0 1];
 
 fignames = {'Tetanus - Calcium-based', 'Tetanus - Force-based','Twitch - Calcium-based', 'Twitch - Force-based'};
 mtypes = {'Hill-type','crossbridge', 'CaFaXC'}; % if DM for crossbridge
-% mtypes{4} = 'Huxley'; % if you want to evaluate original model
+mtypes{4} = 'Huxley'; % if you want to evaluate original model
 
 titles = {'Ca activation', 'Force', 'CE length'};
 ylabels = {'Activation', 'Force (N)', 'Length (m)'};
@@ -78,9 +77,9 @@ for s = ss
     title('CE force-length'); 
     ylim([0 parms.ce.Fmax])
 
-    subplot(244); plot(fv.vHill*parms.ce.lceopt, fv.FCB*parms.ce.Fmax,'--','linewidth',1,'color',[.5 .5 .5]); hold on
+    subplot(244); plot(fv.vHill, fv.FHill,'--','linewidth',1,'color',[.5 .5 .5]); hold on
     title('CE force-velocity'); 
-    ylim([0 parms.ce.Fmax*parms.ce.Fasymp])
+    ylim([0 parms.ce.Fasymp])
     
     setts.step_input = inp(s);
     setts.slow_act = sla(s); % slow activation time constants
@@ -96,7 +95,7 @@ for s = ss
         else, parms.exp.u_func = @(t, parms) parms.exp.A .* (.5 + .5 * square(2*pi*parms.exp.freq*t, .5 * parms.exp.freq)) .* (t < parms.exp.tstop); % assuming a pulse width of 5 ms
         end
 
-        for m = ms
+        for m = 1:3
 
             % model type
             setts.M = m;
@@ -104,13 +103,13 @@ for s = ss
             % specify type
             parms.type = mtypes{m};
             
-            if  strcmp(parms.type,'Hill-type') % sometimes needed
+            if strcmp(parms.type,'Hill-type') % sometimes needed
                 parms.set.odeopt = odeset('maxstep',1e-3);
             else
                 parms.set.odeopt = odeset('maxstep',1e-3);
             end
             
-            parms.set.odeopt = [];
+%             parms.set.odeopt = [];
             
             if setts.slow_act && ~strcmp(parms.type,'CaFaXC')
                if setts.mouse
@@ -136,7 +135,7 @@ for s = ss
 
             % simulate
             tic
-            [t,x] = ode23s(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
+            [t,x] = ode113(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
             toc
             disp(['Number of iterations: ', num2str(length(t))])
             
@@ -159,9 +158,9 @@ for s = ss
             
             % contractile element force
             if strcmp(parms.type,'crossbridge')
-                Fce = x(:,3) / parms.CB.delta;
+                Fce = x(:,3) /(parms.CB.Xmax(2)/parms.ce.Fmax);
             elseif  strcmp(parms.type,'CaFaXC')
-                Fce = x(:,4) / parms.CB.delta;
+                Fce = x(:,4) /(parms.CB.Xmax(2)/parms.ce.Fmax);
                 X(:,4) = x(:,2);
             elseif  strcmp(parms.type,'Hill-type')
                 Fce = Fse - Fpe;
@@ -195,7 +194,7 @@ for s = ss
             end
             
             subplot(244)
-            plot(vce, Fce, 'color',color(m,:));
+            plot(vce/parms.ce.lceopt, Fce/parms.ce.Fmax, 'color',color(m,:));
             
             subplot(248);
             plot(t, vce, 'color',color(m,:)); 
