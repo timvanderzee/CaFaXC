@@ -344,6 +344,7 @@ classdef cfxc < handle
         elseif  strcmp(parms.type,'CaFaXC')
             y.Fce = x(:,4) /(parms.CB.Xmax(2)/parms.ce.Fmax);
             X(:,4) = x(:,2);
+            y.Fa = x(:,2); 
         elseif  strcmp(parms.type,'Hill-type')
             y.Fce = y.Fse - y.Fpe;
         elseif strcmp(parms.type,'Huxley')
