@@ -186,8 +186,6 @@ for i = 1:8
     
 end
 
-
-
 %% plot some dots
 figure(1)
 subplot(242); plot(Frise(1,2), .9, 'k.','markersize',10)

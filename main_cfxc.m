@@ -36,6 +36,7 @@ tau_original = parms.ce.tau;
 
 %% Contributions to force development (tetanus)
 parms.exp.stim_type = 'constant';
+parms.type = 'CaFaXC';
 parms.exp.a = 1;
 parms.exp.A = 1;
 

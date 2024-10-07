@@ -25,6 +25,9 @@ vHill = parms.func.fv(1,  FHill, 1, parms); % corresponding velocities
 fv.vHill = linspace(-parms.ce.vmaxrel, parms.ce.vmaxrel/2);
 fv.FHill = interp1(vHill, FHill, fv.vHill);
 
+[fv.FCB(:,1),fv.n,fv.FCB(:,2)] = cfxc.CB_force_velocity(fv.vHill, parms);
+
+
 %% fit  crossbridge model rates on Hill-type force-velocity relation
 % rates used in the paper
 parms.CB.g = [140 1388 78];

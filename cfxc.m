@@ -693,23 +693,7 @@ end
     Q1dot = trapz(parms.CB.xi, ndot0 .* parms.CB.xi);
 
     vce = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, fmax, parms);
-    
-%     % determine elastic stiffnesses
-%     dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
-%     kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
-%     ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
-% 
-%     % calculate velocity that assures that forces are compatible at next time step
-%     vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - Q1dot/fmax) ...
-%          / (ks + kp + Q0/(fmax*gamma));
-% 
-%     % back to crossbridge
-% %     u = vcerel / gamma;
-%     vce = vcerel * parms.ce.lceopt;
-
-      
-%       % velocity calculation
-%       u = (fmax/parms.ce.Fmax*ks * parms.exp.vmtc - Q1dot) ./ (fmax/parms.ce.Fmax*ks/alpha + fmax/parms.ce.Fmax*kp/alpha + Q0);
+   
 
       if parms.set.no_tendon
           u = alpha * parms.exp.vmtc;
@@ -777,34 +761,43 @@ end
 
     function[parms] = calc_x0(parms)
 
-      % lmtc
-      parms.exp.lmtc = parms.func.lmtc(parms.exp.phi, parms);
+    % lmtc
+    parms.exp.lmtc = parms.func.lmtc(parms.exp.phi, parms);
 
-      % CE length (assuming slack elastic tissues)
-      lce0 = parms.exp.lmtc - parms.see.lse0;
+    % CE length (assuming slack elastic tissues)
+    lce0 = parms.exp.lmtc - parms.see.lse0;
 
-      % assume minimal excitation
-      parms.exp.A = parms.ce.amin;
-      
-      % if PE is exerting force, find length at which elastic forces are equal
-      opt = optimset('TolFun',1e-20);
-      if lce0 > (parms.pe.lpe0*parms.ce.lceopt)
-          parms.exp.l0 = fminsearch(@(L0) cfxc.find_l0(L0,parms), lce0, opt);
-      else % else, SE is also slack
-          parms.exp.l0 = lce0;
-      end
-      
-      % now we also know the myofilament overlap force-length parameter
-      parms.exp.a = parms.func.fce(parms.exp.l0, parms);
-      
-      % now we can compute the crossbridge distribution for a certain (minimum) activation
-      parms.exp.u = 0;
-      
-      % find the distribution using root finding on derivatives
-      X0 = fminsearch(@(X) cfxc.find_steadystate(X, parms), zeros(1,3), opt);
-      
-      % initial conditions
-      parms.exp.x0 = [parms.ce.amin X0 parms.exp.l0];
+    % assume minimal excitation
+    parms.exp.A = parms.ce.amin;
+
+    % if PE is exerting force, find length at which elastic forces are equal
+    opt = optimset('TolFun',1e-20);
+    if lce0 > (parms.pe.lpe0*parms.ce.lceopt)
+    parms.exp.l0 = fminsearch(@(L0) cfxc.find_l0(L0,parms), lce0, opt);
+    else % else, SE is also slack
+    parms.exp.l0 = lce0;
+    end
+
+    % now we also know the myofilament overlap force-length parameter
+    parms.exp.a = parms.func.fce(parms.exp.l0, parms);
+
+    % now we can compute the crossbridge distribution for a certain (minimum) activation
+    parms.exp.u = 0;
+
+    % non-linear inequality constraint
+    nlincon_ineq = @(X) (X(2)/X(1))^2 - X(3)/X(1); % < 0
+    nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
+    LB = [1e-6 -inf -inf]; % Q0 can't be 0
+
+    % isometric
+    opt = optimset('Display','off');
+    X0 = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.ce.amin * parms.CB.Xmax, [],[],[],[],LB,[],nlincon_func, opt);
+
+    % find the distribution using root finding on derivatives
+%     X0 = fminsearch(@(X) cfxc.find_steadystate(X, parms), zeros(1,3), opt);
+
+    % initial conditions
+    parms.exp.x0 = [parms.ce.amin X0 parms.exp.l0];
       
     end
 

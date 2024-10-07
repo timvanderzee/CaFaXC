@@ -16,7 +16,7 @@ addpath(fullfile(codefolder,'model parameters'));
 addpath(fullfile(codefolder,'cyclic force study','inputs'));
 
 %% Update parameters
-setts.mouse = 0; % false for human
+setts.mouse = 1; % false for human
 
 if setts.mouse
     load('mouse_parms.mat')
