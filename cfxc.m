@@ -137,43 +137,7 @@ classdef cfxc < handle
       end
       end
 
-      function[phi] = analytical_solution_zahalak(Q0, Q1, Q2,parms)          
-        eps = 1e-6; 
-    %     eps = 0;
-        Q0c = max(Q0, eps);
-        
-        p = Q1/Q0c; % Eq. 52
-        q = sqrt(max(Q2/Q0c - (Q1/Q0c)^2, eps));  % Eq. 52
-        
-        f1 = parms.CB.f(1);
-        g1 = parms.CB.g(1);
-        g2 = parms.CB.g(2);
-        g3 = parms.CB.g(3);    
-        
-        % Jer
-        jerf = @(tau) 1/2 * (1 + erf(tau/sqrt(2))); % translation of Zahalak's erf to the actual erf: see Sure hope this is right. % jer had *ci.sqrt(2) in the prefixing coefficient denominator.
-
-        % following the J's from Zahalak 1981, A11.  
-        J0 = @(tau,p,q) jerf(tau);
-        J1 = @(tau,p,q) p^1*jerf(tau) -         q*exp(-tau^2/2) / sqrt(2*pi);
-        J2 = @(tau,p,q) p^2*jerf(tau) - 2*p^1*  q*exp(-tau^2/2) / sqrt(2*pi) ...
-            + q^2        * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi));
-        J3 = @(tau,p,q) p^3*jerf(tau) - 3*p^2*  q*exp(-tau^2/2) / sqrt(2*pi) ...
-            + 3*p*q^2    * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi)) ...
-            - q^3*(2+tau^2) * exp(-tau^2/2) / sqrt(2*pi);
-    
-        % A-12. 
-        phi0 = Q0*(g2*J0(-p/q,p,q) + (f1+g1)*( J1((1-p)/q,p,q) - J1(-p/q,p,q) )...
-            + g1*(p             - J1((1-p)/q,p,q) ) + g3*(p                 - J1((1-p)/q,p,q) - 1 + J0((1-p)/q,p,q) ));
-        phi1 = Q0*(g2*J1(-p/q,p,q) + (f1+g1)*( J2((1-p)/q,p,q) - J2(-p/q,p,q) )...
-            + g1*(p^2+q^2       - J2((1-p)/q,p,q) ) + g3*(p^2+q^2           - J2((1-p)/q,p,q) - p + J1((1-p)/q,p,q)));
-        phi2 = Q0*(g2*J2(-p/q,p,q) + (f1+g1)*( J3((1-p)/q,p,q) - J3(-p/q,p,q) )...
-            + g1*(p^3+3*p*q^2   - J3((1-p)/q,p,q) ) + g3*(p^3 + 3*p*q^2     - J3((1-p)/q,p,q) - (p^2+q^2) + J2((1-p)/q,p,q)));
-    
-        phi = [phi0; phi1; phi2];
-
-      end
-
+          
     % moved from 'find model inputs'
     function[U_smooth] = smoothen_solution(U,prob)
 
@@ -289,13 +253,13 @@ classdef cfxc < handle
       end
 
       if strcmp(parms.type, 'crossbridge')
-        dX(2:5,1) = cfxc.crossbridge(Ca, x(2:5), parms);
+        dX(2:end,1) = cfxc.crossbridge(Ca, x(2:end), parms);
         
       elseif strcmp(parms.type, 'crossbridge_v2')
         dX(2:4,1) = cfxc.crossbridge_v2(Ca, x(2:4), parms);
       
       elseif strcmp(parms.type, 'crossbridge_new')
-        dX(2:6,1) = cfxc.crossbridge_new(Ca, x(2:6), parms);
+        dX(2:end,1) = cfxc.crossbridge_new(Ca, x(2:end), parms);
       
       elseif strcmp(parms.type, 'Huxley')
         dX(2:(parms.CB.nbins+2),1) = cfxc.crossbridge_original(Ca, x(2:end), parms);
@@ -391,20 +355,34 @@ end
     function[beta,phi] = beta_phi_func(Q0,Q1,Q2,parms)
 
       if parms.CB.analytical
-          beta = [parms.CB.f/2; parms.CB.f/3; parms.CB.f/4];
-          phi = cfxc.analytical_solution_zahalak(Q0, Q1, Q2, parms);
+          
+          if strcmp(parms.CB.ratefunc_type, 'Zahalak1981')
+              beta = [parms.CB.f/2; parms.CB.f/3; parms.CB.f/4];
+              phi = cfxc.analytical_solution_zahalak(Q0, Q1, Q2, parms);
+          elseif strcmp(parms.CB.ratefunc_type, 'vanderZee2024')
+              beta = 1./[1 2 3] .* parms.CB.f .* ((parms.CB.ps+parms.CB.w).^[1 2 3] - (parms.CB.ps-parms.CB.w).^[1 2 3]);
+              phi = cfxc.analytical_solution_vanderzee(Q0, Q1, Q2, parms);
+          end
       
       else
           % get distribution
           n = cfxc.n_func(Q0, Q1, Q2, parms.CB);
       
-          beta0 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms));   % Eq. 48
-          beta1 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms));   % Eq. 48
-          beta2 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms));   % Eq. 48
+          beta0 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB));   % Eq. 48
+          beta1 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB));   % Eq. 48
+          beta2 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB));   % Eq. 48
           
-          phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
-          phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
-          phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
+
+          if strcmp(parms.CB.ratefunc_type, 'Zahalak1981')
+              phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+              phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+              phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+          else
+              N = trapz(parms.CB.xi, n);
+              phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+              phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+              phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+          end
           
           beta = [beta0 beta1 beta2];
           phi = [phi0 phi1 phi2];
@@ -424,7 +402,7 @@ end
 
         c = [Q(1) ./ (sqrt(2*pi)*q) p 2*q^2];
         
-        D = 1 - Q0 - R;
+%         D = 1 - Q0 - R;
         
         phi = nan(1,3);
         beta = nan(1,3);
@@ -443,19 +421,132 @@ end
                     IGs = parms.CB.gaussian.IG{i}(xi, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
                 end
                 
-                % positive part
-                beta(i) = 1/i * (parms.CB.f * D) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...  
-                        + 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i); 
+                % beta: whatever is activation-dependent
+                beta(i) = 1/i * (parms.CB.f * 1) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
                 
-                % negative part             
-                phi(i) = parms.CB.g(1)  * (IGs(4) - IGs(2)) + parms.CB.g(2) * (IGs(2) - IGs(1)) ...; % note: changed IGs(1) to IGs(2) in first half
-                       + parms.CB.k     * (IGs(4) - IGs(3));
+                % phi: whatever is activation-independent          
+                phi(i) = parms.CB.g(1)  * (IGs(4) - IGs(2)) + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
+                       + parms.CB.k     * (IGs(4) - IGs(3)) ...
+                       - 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...
+                       + 1/i * (parms.CB.f * (R+Q0)) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
 
             end
         
       end
     end
+          function[phi] = analytical_solution_zahalak(Q0, Q1, Q2,parms)          
+        eps = 1e-6; 
+    %     eps = 0;
+        Q0c = max(Q0, eps);
+        
+        p = Q1/Q0c; % Eq. 52
+        q = sqrt(max(Q2/Q0c - (Q1/Q0c)^2, eps));  % Eq. 52
+        
+        f1 = parms.CB.f(1);
+        g1 = parms.CB.g(1);
+        g2 = parms.CB.g(2);
+        g3 = parms.CB.g(3);    
+        
+        % Jer
+        jerf = @(tau) 1/2 * (1 + erf(tau/sqrt(2))); % translation of Zahalak's erf to the actual erf: see Sure hope this is right. % jer had *ci.sqrt(2) in the prefixing coefficient denominator.
+
+        % following the J's from Zahalak 1981, A11.  
+        J0 = @(tau,p,q) jerf(tau);
+        J1 = @(tau,p,q) p^1*jerf(tau) -         q*exp(-tau^2/2) / sqrt(2*pi);
+        J2 = @(tau,p,q) p^2*jerf(tau) - 2*p^1*  q*exp(-tau^2/2) / sqrt(2*pi) ...
+            + q^2        * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi));
+        J3 = @(tau,p,q) p^3*jerf(tau) - 3*p^2*  q*exp(-tau^2/2) / sqrt(2*pi) ...
+            + 3*p*q^2    * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi)) ...
+            - q^3*(2+tau^2) * exp(-tau^2/2) / sqrt(2*pi);
     
+        % A-12. 
+        phi0 = Q0*(g2*J0(-p/q,p,q) + (f1+g1)*( J1((1-p)/q,p,q) - J1(-p/q,p,q) )...
+            + g1*(p             - J1((1-p)/q,p,q) ) + g3*(p                 - J1((1-p)/q,p,q) - 1 + J0((1-p)/q,p,q) ));
+        phi1 = Q0*(g2*J1(-p/q,p,q) + (f1+g1)*( J2((1-p)/q,p,q) - J2(-p/q,p,q) )...
+            + g1*(p^2+q^2       - J2((1-p)/q,p,q) ) + g3*(p^2+q^2           - J2((1-p)/q,p,q) - p + J1((1-p)/q,p,q)));
+        phi2 = Q0*(g2*J2(-p/q,p,q) + (f1+g1)*( J3((1-p)/q,p,q) - J3(-p/q,p,q) )...
+            + g1*(p^3+3*p*q^2   - J3((1-p)/q,p,q) ) + g3*(p^3 + 3*p*q^2     - J3((1-p)/q,p,q) - (p^2+q^2) + J2((1-p)/q,p,q)));
+    
+        phi = [phi0; phi1; phi2];
+
+      end
+      
+      function[phi] = analytical_solution_vanderzee(Q0, Q1, Q2,parms) 
+        Q = [Q0 Q1 Q2];
+
+        eps = 1e-6;
+
+        p = Q(2)/max(Q(1), eps); % Eq. 52
+        q = sqrt(max(Q(3)/max(Q(1), eps) - (Q(2)/max(Q(1), eps))^2, eps));  % Eq. 52
+
+        c = [Q(1) ./ (sqrt(2*pi)*q) p 2*q^2];
+
+        % add the effect of g3 and g1 for x > 1
+%         g1 = parms.CB.g(1);
+%         g3 = parms.CB.g(3);    
+%         
+%         % Jer
+%         jerf = @(tau) 1/2 * (1 + erf(tau/sqrt(2))); % translation of Zahalak's erf to the actual erf: see Sure hope this is right. % jer had *ci.sqrt(2) in the prefixing coefficient denominator.
+% 
+%         % following the J's from Zahalak 1981, A11.  
+%         J0 = @(tau,p,q) jerf(tau);
+%         J1 = @(tau,p,q) p^1*jerf(tau) -         q*exp(-tau^2/2) / sqrt(2*pi);
+%         J2 = @(tau,p,q) p^2*jerf(tau) - 2*p^1*  q*exp(-tau^2/2) / sqrt(2*pi) ...
+%             + q^2        * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi));
+%         J3 = @(tau,p,q) p^3*jerf(tau) - 3*p^2*  q*exp(-tau^2/2) / sqrt(2*pi) ...
+%             + 3*p*q^2    * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi)) ...
+%             - q^3*(2+tau^2) * exp(-tau^2/2) / sqrt(2*pi);
+%     
+%         % A-12. 
+%         phi_g1g3(1) = Q0*(g1*(p             - J1((1-p)/q,p,q) ) + g3*(p                 - J1((1-p)/q,p,q) - 1 + J0((1-p)/q,p,q) ));
+%         phi_g1g3(2) = Q0*(g1*(p^2+q^2       - J2((1-p)/q,p,q) ) + g3*(p^2+q^2           - J2((1-p)/q,p,q) - p + J1((1-p)/q,p,q)));
+%         phi_g1g3(3) = Q0*(g1*(p^3+3*p*q^2   - J3((1-p)/q,p,q) ) + g3*(p^3 + 3*p*q^2     - J3((1-p)/q,p,q) - (p^2+q^2) + J2((1-p)/q,p,q)));
+        
+        phi = nan(1,3);
+        IGs = nan(4,4);
+
+        for i = 1:4
+            % points were integrals is evaluated
+            xi = [-parms.CB.K 0 1 parms.CB.K];
+            xi2 = [parms.CB.ps-parms.CB.w parms.CB.ps+parms.CB.w];
+
+            if i == 1
+                % most expensive line (50% CPT)
+                IGs(i,:) = parms.CB.gaussian.IG{1}(xi, c);
+                IG2(i,:) = parms.CB.gaussian.IG{1}(xi2, c);
+            else
+                IGs(i,:) = parms.CB.gaussian.IG{i}(xi, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
+                IG2(i,:) = parms.CB.gaussian.IG{i}(xi2, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
+            end
+        end
+        
+        for i = 1:3
+            % phi: whatever is activation-independent          
+%                     + parms.CB.f(1)                     * (IG2(i,2) - IG2(i,1)) ... % f1 with x = 0-1
+%             
+            phi(i)  = parms.CB.g(1)                     * (IGs(i,3) - IGs(i,2)) ... % g1 with x = 0-1
+                    + parms.CB.g(3)                     * (IGs(i+1,4) - IGs(i+1,3)) ... % g1 + g3 for x > 1 (part 1)
+                    + (parms.CB.g(1) - parms.CB.g(3))     * (IGs(i, 4) - IGs(i,3)) ... ; % g1 + g3 for x > 1  (part 2)
+                    + parms.CB.g(2)                     * (IGs(i,2) - IGs(i,1)) ...; % g2 for x < 0
+                    + 1/i * (parms.CB.f * Q0) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i); % f within binding region
+        end
+          
+%           n = cfxc.n_func(Q0, Q1, Q2, parms.CB);
+      
+          
+%           phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+%           phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+%           phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+%         
+%           N = trapz(parms.CB.xi, n);
+%           phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+%           phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+%           phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
+%         
+%           
+% phi_alt = [phi0 phi1 phi2]
+        
+      end
     function[lce] = calc_length_from_force(F, parms)
         
         % method 1: ignore PE
