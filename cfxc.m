@@ -205,7 +205,7 @@ classdef cfxc < handle
     end
     
     function[cost] = find_steadystate(X, parms)
-        parms.type = 'crossbridge';      
+%         parms.type = 'crossbridge';      
         
         [Xd] = cfxc.dXfunc(parms.exp.A, X, parms);
         cost = sum(Xd.^2);
@@ -304,12 +304,16 @@ classdef cfxc < handle
         dX(2,1) = cfxc.Hill_type(Ca, x(2), parms);
 
       elseif strcmp(parms.type, 'CaFaXC')
-        dX(2,1) = parms.func.fac(Ca, x(2), parms); % CaFaXC dynamics
+        dX(2,1) = parms.func.fac(Ca, x(2), parms); % facilitation dynamics
         dX(3:6,1) = cfxc.crossbridge(x(2), x(3:6), parms); % cross-bridge dynamics
         
       elseif strcmp(parms.type, 'CaFaXC_v2')
-        dX(2,1) = parms.func.fac(Ca, x(2), parms); % CaFaXC dynamics
+        dX(2,1) = parms.func.fac(Ca, x(2), parms); % facilitation dynamics
         dX(3:end,1) = cfxc.crossbridge_v2(x(2), x(3:end), parms); % cross-bridge dynamics        
+      
+      elseif strcmp(parms.type, 'CaFaC')
+        dX(2,1) = parms.func.fac(Ca, x(2), parms); % facilitation dynamics
+        dX(3,1) = cfxc.Hill_type(x(2), x(3), parms); % Hill-type dynamics      
       end
       
       % if we're simulating the lmtc
@@ -347,6 +351,10 @@ classdef cfxc < handle
             y.Fa = x(:,2); 
         elseif  strcmp(parms.type,'Hill-type')
             y.Fce = y.Fse - y.Fpe;
+        elseif  strcmp(parms.type,'CaFaC')
+            y.Fce = y.Fse - y.Fpe;
+            X(:,4) = x(:,2);
+            y.Fa = x(:,2); 
         elseif strcmp(parms.type,'Huxley')
             gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
             alpha = 1 / (gamma * parms.ce.lceopt);
@@ -365,12 +373,15 @@ classdef cfxc < handle
 function[Xd] = dXfunc(U, X, parms)
       U = U .* (U > 0);
       X = X .* (X > 0);
-      
+      parms.set.fixed_velocity = 1;
+          
       if strcmp(parms.type, 'crossbridge') || strcmp(parms.type, 'CaFaXC')
           % in this function, we treat velocity as input
-          parms.set.fixed_velocity = 1;
           Xd = cfxc.crossbridge(U, X, parms);
       
+      elseif strcmp(parms.type, 'crossbridge_new')
+            Xd = cfxc.crossbridge_new(U, X, parms);
+            
       else % simple first-order
            Xd = (U-X) / parms.ce.tau;
       end
@@ -400,6 +411,51 @@ end
       end
     end
     
+    % moved from find_model_inputs
+    function[beta, phi, Rd] = beta_phi_func_v2(Q0,Q1,Q2,R,parms)
+        % for a model with a ripped state
+
+        Q = [Q0 Q1 Q2];
+        
+        eps = 1e-6;
+
+        p = Q(2)/max(Q(1), eps); % Eq. 52
+        q = sqrt(max(Q(3)/max(Q(1), eps) - (Q(2)/max(Q(1), eps))^2, eps));  % Eq. 52
+
+        c = [Q(1) ./ (sqrt(2*pi)*q) p 2*q^2];
+        
+        D = 1 - Q0 - R;
+        
+        phi = nan(1,3);
+        beta = nan(1,3);
+    
+      if parms.CB.analytical
+          
+            for i = 1:3
+                % points were integrals is evaluated
+                xi = [-parms.CB.K 0 parms.CB.dLcrit parms.CB.K];
+
+                if i == 1
+                    % most expensive line (50% CPT)
+                    IGs = parms.CB.gaussian.IG{1}(xi, c);
+                    Rd = (parms.CB.k * (IGs(4) - IGs(3)) -  (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w) - (parms.CB.ps-parms.CB.w))); 
+                else
+                    IGs = parms.CB.gaussian.IG{i}(xi, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
+                end
+                
+                % positive part
+                beta(i) = 1/i * (parms.CB.f * D) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...  
+                        + 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i); 
+                
+                % negative part             
+                phi(i) = parms.CB.g(1)  * (IGs(4) - IGs(2)) + parms.CB.g(2) * (IGs(2) - IGs(1)) ...; % note: changed IGs(1) to IGs(2) in first half
+                       + parms.CB.k     * (IGs(4) - IGs(3));
+
+            end
+        
+      end
+    end
+    
     function[lce] = calc_length_from_force(F, parms)
         
         % method 1: ignore PE
@@ -418,110 +474,70 @@ end
     end
     
       function[Xd] = crossbridge_new(r, x, parms)
-      % Zahalak derivative function with 3 states (the Qs)
-      % based on Zahalak & Ma (1990), J. Biomech. Eng.
+        % Zahalak derivative function with 3 states (the Qs)
+        % based on Zahalak & Ma (1990), J. Biomech. Eng.
 
-      %% retrieve states
-      Q0 = x(1); 
-      Q1 = x(2); 
-      Q2 = x(3); 
-      R = x(4);
-      
-      D = 1 - Q0 - R;
-      
-      Q = [Q0; Q1; Q2];
-      
-      % attached
-      N = cfxc.n_func(Q(1), Q(2), Q(3),parms.CB);
-    
-      i = 2;
-      
-      Q1dot = r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.f_func(parms) .* D) +...
-                r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.b_func(parms) .* R) - ...
-                  trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* (parms.CB.g_func(parms) + parms.CB.k_func(parms)) .* N);   
+        %% retrieve states
+        Q0 = x(1); 
+        Q1 = x(2); 
+        Q2 = x(3); 
 
-        % change in ripped
-        Rd = trapz(parms.CB.xi, parms.CB.k_func(parms) .* N) - r * trapz(parms.CB.xi, parms.CB.b_func(parms) .* R);  
-    
-        % length scaling parameter
-        gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
-        alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
-        
-      %% length dynamics  
-      if ~parms.set.fixed_velocity
-          % either length is a quasi-state, or we need to calculate it
-        if length(x) > 4
-            lce = x(5);
+        if length(x)<4
+            R = 0;
         else
+            R = x(4);
+        end
+        
+        % rate constants
+        parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
+        parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
+
+        % calculate beta and phi
+        [beta,phi,Rd] = cfxc.beta_phi_func_v2(Q0,Q1,Q2,R,parms);
+
+        %% length dynamics  
+        if ~parms.set.fixed_velocity
+            % length scaling parameter
+            gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
+            alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
+
+            % either length is a quasi-state, or we need to calculate it
+            if length(x) > 3
+            lce = x(4);
+            else
             lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
-        end
+            end
 
-        if parms.set.optimum
+            if parms.set.optimum
             a = parms.exp.a; % in case you assume optimum length
-        else, a = parms.func.fce(lce, parms); % in case you use force-length relation
+            else, a = parms.func.fce(lce, parms); % in case you use force-length relation
+            end
+
+            % calculate velocity
+            Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
+            [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
+
+            if parms.set.no_tendon
+            u = alpha * parms.exp.vmtc;
+            end
+
+        else
+
+            u = parms.exp.u;
+            a = parms.exp.a;
         end
 
-        % determine elastic stiffnesses
-        kp = parms.func.kpe(lce, parms);
-        dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
-        ks = parms.func.kse(dlse_rel,parms) * (parms.ce.Fmax/parms.see.lse0);
+        %% state derivates
+        Qd0 = a * r * beta(1) - phi(1);
+        Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
+        Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
 
-        % calculate velocity that assures that forces are compatible at next time step
-        u = (parms.CB.Xmax(2)/parms.ce.Fmax*ks * parms.exp.vmtc - Q1dot) ./ (parms.CB.Xmax(2)/parms.ce.Fmax*ks/alpha + parms.CB.Xmax(2)/parms.ce.Fmax*kp/alpha + Q0);
-
-        if parms.set.no_tendon
-          u = alpha * parms.exp.vmtc;
+        % total state derivative vector
+        if length(x) > 4
+        Xd = [Qd0; Qd1; Qd2; Rd; vce];
+        else
+        Xd = [Qd0; Qd1; Qd2; Rd];
         end
-
-      else
-          
-         u = parms.exp.u;
-         a = parms.exp.a;
-      end
-      
-      %% state derivates
-          % add a zero
-
-      % calculate beta and phi
-      [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
-    
-      
-      % get distribution
-      n = cfxc.n_func(Q0, Q1, Q2, parms.CB);
-
-      beta0 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms));   % Eq. 48
-      beta1 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms));   % Eq. 48
-      beta2 = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms));   % Eq. 48
-
-      phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
-      phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
-      phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms) .* n);   % Eq. 49+50
-
-      beta = [beta0 beta1 beta2];
-      phi = [phi0 phi1 phi2];
-      
-    Qr = [0; Q];
-    Qd = nan(size(Q));  
-    for i = 1:3
-        Qd(i,1)  = r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.f_func(parms) .* D) ...
-            + r * trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* parms.CB.b_func(parms) .* R) ...
-            - trapz(parms.CB.xi, parms.CB.xi.^(i-1) .* (parms.CB.g_func(parms) + parms.CB.k_func(parms)) .* N) + (i-1) * u * Qr(i);   
-    end
-% 
-%       Qd0 = a * r * beta(1) - phi(1);
-%       Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
-%       Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
-      
-%       Qd = [Qd0; Qd1; Qd2];
-          
-      if length(x) > 4
-        vce = u / alpha;
-      else
-        vce = [];
-      end
-      
-      % total state derivative vector
-      Xd = [Qd; Rd; vce];
 
       end
     
@@ -788,7 +804,8 @@ end
     % non-linear inequality constraint
     nlincon_ineq = @(X) (X(2)/X(1))^2 - X(3)/X(1); % < 0
     nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
-    LB = [1e-6 -inf -inf]; % Q0 can't be 0
+    LB = -inf * ones(size(parms.CB.Xmax));
+    LB(1) = 1e-6; % Q0 can't be 0
 
     % isometric
     opt = optimset('Display','off');
@@ -799,6 +816,11 @@ end
 
     % initial conditions
     parms.exp.x0 = [parms.ce.amin X0 parms.exp.l0];
+    
+    % calc Xmax
+    opt = optimset('Display','off');
+    parms.exp.A = 1;
+    parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.CB.Xmax, [],[],[],[],LB,[],nlincon_func, opt);
       
     end
 
