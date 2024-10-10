@@ -336,7 +336,7 @@ classdef cfxc < handle
     
 function[Xd] = dXfunc(U, X, parms)
       U = U .* (U > 0);
-      X = X .* (X > 0);
+%       X = X .* (X > 0);
       parms.set.fixed_velocity = 1;
           
       if strcmp(parms.type, 'crossbridge') || strcmp(parms.type, 'CaFaXC')
@@ -360,7 +360,7 @@ end
               beta = [parms.CB.f/2; parms.CB.f/3; parms.CB.f/4];
               phi = cfxc.analytical_solution_zahalak(Q0, Q1, Q2, parms);
           elseif strcmp(parms.CB.ratefunc_type, 'vanderZee2024')
-              beta = 1./[1 2 3] .* parms.CB.f .* ((parms.CB.ps+parms.CB.w).^[1 2 3] - (parms.CB.ps-parms.CB.w).^[1 2 3]);
+              beta = 2./[1 2 3] .* parms.CB.f .* ((parms.CB.ps+parms.CB.w).^[1 2 3] - (parms.CB.ps-parms.CB.w).^[1 2 3]);
               phi = cfxc.analytical_solution_vanderzee(Q0, Q1, Q2, parms);
           end
       
@@ -391,6 +391,12 @@ end
     
     % moved from find_model_inputs
     function[beta, phi, Rd] = beta_phi_func_v2(Q0,Q1,Q2,R,parms)
+        % idea: could consider removing this and just adding additional
+        % terms to the phi calculated by beta_phi_func (and adding Rd).
+        % Would need to add g3 calculations, and set g3 = 0 if ripping.
+        % Might be same with SRX state, need to discount crossbridges in
+        % this state in the phi term.
+                
         % for a model with a ripped state
 
         Q = [Q0 Q1 Q2];
@@ -422,13 +428,14 @@ end
                 end
                 
                 % beta: whatever is activation-dependent
-                beta(i) = 1/i * (parms.CB.f * 1) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
+                beta(i) = 1/i * (2 * parms.CB.f * 1) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
                 
                 % phi: whatever is activation-independent          
-                phi(i) = parms.CB.g(1)  * (IGs(4) - IGs(2)) + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
-                       + parms.CB.k     * (IGs(4) - IGs(3)) ...
+                phi(i) = parms.CB.g(1) * (IGs(4) - IGs(2)) ...
+                       + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
+                       + parms.CB.k    * (IGs(4) - IGs(3)) ...
                        - 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...
-                       + 1/i * (parms.CB.f * (R+Q0)) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
+                       + 1/i * (2 * parms.CB.f * (R+Q0)) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
 
             end
         
@@ -481,70 +488,29 @@ end
 
         c = [Q(1) ./ (sqrt(2*pi)*q) p 2*q^2];
 
-        % add the effect of g3 and g1 for x > 1
-%         g1 = parms.CB.g(1);
-%         g3 = parms.CB.g(3);    
-%         
-%         % Jer
-%         jerf = @(tau) 1/2 * (1 + erf(tau/sqrt(2))); % translation of Zahalak's erf to the actual erf: see Sure hope this is right. % jer had *ci.sqrt(2) in the prefixing coefficient denominator.
-% 
-%         % following the J's from Zahalak 1981, A11.  
-%         J0 = @(tau,p,q) jerf(tau);
-%         J1 = @(tau,p,q) p^1*jerf(tau) -         q*exp(-tau^2/2) / sqrt(2*pi);
-%         J2 = @(tau,p,q) p^2*jerf(tau) - 2*p^1*  q*exp(-tau^2/2) / sqrt(2*pi) ...
-%             + q^2        * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi));
-%         J3 = @(tau,p,q) p^3*jerf(tau) - 3*p^2*  q*exp(-tau^2/2) / sqrt(2*pi) ...
-%             + 3*p*q^2    * (jerf(tau) - tau*exp(-tau^2/2) / sqrt(2*pi)) ...
-%             - q^3*(2+tau^2) * exp(-tau^2/2) / sqrt(2*pi);
-%     
-%         % A-12. 
-%         phi_g1g3(1) = Q0*(g1*(p             - J1((1-p)/q,p,q) ) + g3*(p                 - J1((1-p)/q,p,q) - 1 + J0((1-p)/q,p,q) ));
-%         phi_g1g3(2) = Q0*(g1*(p^2+q^2       - J2((1-p)/q,p,q) ) + g3*(p^2+q^2           - J2((1-p)/q,p,q) - p + J1((1-p)/q,p,q)));
-%         phi_g1g3(3) = Q0*(g1*(p^3+3*p*q^2   - J3((1-p)/q,p,q) ) + g3*(p^3 + 3*p*q^2     - J3((1-p)/q,p,q) - (p^2+q^2) + J2((1-p)/q,p,q)));
-        
+
         phi = nan(1,3);
         IGs = nan(4,4);
 
         for i = 1:4
             % points were integrals is evaluated
-            xi = [-parms.CB.K 0 1 parms.CB.K];
-            xi2 = [parms.CB.ps-parms.CB.w parms.CB.ps+parms.CB.w];
+            xi = [-parms.CB.K 0 parms.CB.dLcrit parms.CB.K];
 
             if i == 1
                 % most expensive line (50% CPT)
                 IGs(i,:) = parms.CB.gaussian.IG{1}(xi, c);
-                IG2(i,:) = parms.CB.gaussian.IG{1}(xi2, c);
             else
                 IGs(i,:) = parms.CB.gaussian.IG{i}(xi, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
-                IG2(i,:) = parms.CB.gaussian.IG{i}(xi2, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
             end
         end
         
         for i = 1:3
-            % phi: whatever is activation-independent          
-%                     + parms.CB.f(1)                     * (IG2(i,2) - IG2(i,1)) ... % f1 with x = 0-1
-%             
-            phi(i)  = parms.CB.g(1)                     * (IGs(i,3) - IGs(i,2)) ... % g1 with x = 0-1
-                    + parms.CB.g(3)                     * (IGs(i+1,4) - IGs(i+1,3)) ... % g1 + g3 for x > 1 (part 1)
-                    + (parms.CB.g(1) - parms.CB.g(3))     * (IGs(i, 4) - IGs(i,3)) ... ; % g1 + g3 for x > 1  (part 2)
+            % phi: whatever is activation-independent (note: this is a bit like Zahalak, 1986)                   
+            phi(i)  = parms.CB.g(1)                     * (IGs(i,3) - IGs(i,2)) ... % g1 with x = 0-Lcrit
+                    + (parms.CB.g(3)+parms.CB.g(1))     * (IGs(i+1,4) - IGs(i+1,3)) ... % g1+g3 for x > Lcrit
                     + parms.CB.g(2)                     * (IGs(i,2) - IGs(i,1)) ...; % g2 for x < 0
-                    + 1/i * (parms.CB.f * Q0) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i); % f within binding region
+                    + 1/i * (2 * parms.CB.f * Q0) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i); % f within binding region
         end
-          
-%           n = cfxc.n_func(Q0, Q1, Q2, parms.CB);
-      
-          
-%           phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
-%           phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
-%           phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB) .* n) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
-%         
-%           N = trapz(parms.CB.xi, n);
-%           phi0   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^0 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
-%           phi1   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^1 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
-%           phi2   = cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.f_func(parms.CB) .* N) + cfxc.TimTrapz(parms.CB.xi, parms.CB.xi.^2 .* parms.CB.g_func(parms.CB) .* n);   % Eq. 49+50
-%         
-%           
-% phi_alt = [phi0 phi1 phi2]
         
       end
     function[lce] = calc_length_from_force(F, parms)
@@ -572,7 +538,12 @@ end
         Q0 = x(1); 
         Q1 = x(2); 
         Q2 = x(3); 
-
+        
+        % we use Q1 here instead of Fcerel, otherwise difficult to
+        % determine Xmax
+%         DRX = r * (parms.CB.k1 + parms.CB.kF*Q1) / (parms.CB.k1 + parms.CB.kF*Q1 + parms.CB.k2);  
+        DRX = r;
+        
         if length(x)<4
             R = 0;
         else
@@ -605,7 +576,7 @@ end
             end
 
             % calculate velocity
-            Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
+            Q1dot = a * DRX * beta(2) - phi(2); % velocity-independent Q1dot
             [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
 
             if parms.set.no_tendon
@@ -619,9 +590,9 @@ end
         end
 
         %% state derivates
-        Qd0 = a * r * beta(1) - phi(1);
-        Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
-        Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
+        Qd0 = a * DRX * beta(1) - phi(1);
+        Qd1 = a * DRX * beta(2) - phi(2) + 1 * u * Q0;
+        Qd2 = a * DRX * beta(3) - phi(3) + 2 * u * Q1;
 
         % total state derivative vector
         if length(x) > 4
@@ -909,7 +880,7 @@ end
     parms.exp.x0 = [parms.ce.amin X0 parms.exp.l0];
     
     % calc Xmax
-    opt = optimset('Display','off');
+    opt = optimset('Display','on');
     parms.exp.A = 1;
     parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.CB.Xmax, [],[],[],[],LB,[],nlincon_func, opt);
       
@@ -1370,24 +1341,25 @@ function[FCB, parms] = evaluate_DM(vHill, parms)
     % non-linear inequality constraint
     nlincon_ineq = @(X) (X(2)/X(1))^2 - X(3)/X(1); % < 0
     nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
-    LB = [1e-6 -inf -inf]; % Q0 can't be 0
+    LB = [1e-6 -inf -inf 1e-6]; % Q0 can't be 0
 
     % isometric conditions
     parms.exp.u = 0;
-    parms.type = 'crossbridge';
+%     parms.type = 'crossbridge';
     parms.exp.a = 1; % at optimum length
     parms.exp.A = 1; % maximal excitation
 
     % isometric
     opt = optimset('Display','off');
-    X0 = [1/2 1/4 1/6];
-    parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB,[],nlincon_func, opt);
+    X0 = parms.CB.Xmax;
+    
+    parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
 
     % concentric
     id = vHill<=0;
     vs = flip(vHill(id));
 
-    Xmax = nan(length(vs),3);
+    Xmax = nan(length(vs), length(X0));
     cost = nan(length(vs), 1);
 
     for i = 1:length(vs)
@@ -1398,7 +1370,7 @@ function[FCB, parms] = evaluate_DM(vHill, parms)
         end
 
         % need to use fmincon because of nonlinear constraints violated with fminsearch
-        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB,[],nlincon_func, opt);
+        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
 
         cost(i) = cfxc.find_steadystate(Xmax(i,:), parms);
     end
@@ -1409,7 +1381,7 @@ function[FCB, parms] = evaluate_DM(vHill, parms)
     id = vHill>0;
     vs = vHill(id);
 
-    Xmax = nan(length(vs),3);
+    Xmax = nan(length(vs), length(X0));
     cost = nan(length(vs), 1);
     for i = 1:length(vs)
         parms.exp.u = vs(i) * 0.5 * parms.CB.s / parms.CB.h;
@@ -1419,7 +1391,7 @@ function[FCB, parms] = evaluate_DM(vHill, parms)
         end
 
         % need to use fmincon because of nonlinear constraints violated with fminsearch
-        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB,[],nlincon_func, opt);
+        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
 
         cost(i) = cfxc.find_steadystate(Xmax(i,:), parms);
     end

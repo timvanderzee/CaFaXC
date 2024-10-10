@@ -27,7 +27,7 @@ close all
 %% activation
 parms.type = 'crossbridge';
 parms.CB.Xmax = [.5 .5 .5];
-parms.CB.f = 700;
+parms.CB.f = 350;
 parms.CB.g = [350 1300 80];
 X0 = ones(1,4)*1e-3;
 
@@ -67,7 +67,7 @@ end
 
 %%
 close all
-ustretch = -1000;
+u_imposed = 500;
 A = 1;
 
 parms.CB.K = 10;
@@ -75,7 +75,7 @@ parms.CB.K = 10;
 figure(1)
 color = get(gca,'colororder');
 
-for j = 1:5
+for j = 1:4
     if j == 1
         
         parms.CB.f_func = @(parms) parms.f(1) .* (parms.xi>0 & parms.xi<=1) .* parms.xi;
@@ -97,8 +97,8 @@ for j = 1:5
         
     elseif j == 3
         parms.type = 'crossbridge';
-        parms.CB.f = 700;
-        parms.CB.g = [350 1300 200];
+        parms.CB.f = 454;
+        parms.CB.g = [454 2100/2 88];
         parms.CB.Xmax = [.5 .5 .6];
 
         X0 = ones(1,4)*1e-3;
@@ -109,10 +109,12 @@ for j = 1:5
         parms.CB.ratefunc_type = 'vanderZee2024';
         
     elseif j == 4
-        parms.type = 'crossbridge';
-        X0 = ones(1,4)*1e-3;
-        parms.CB.analytical = 0;
-        parms.CB.ratefunc_type = 'vanderZee2024';
+        parms.type = 'crossbridge_new';
+%         parms.CB.Xmax = [.5 .5 .5];
+%         parms.CB.f = 700;
+%         parms.CB.g = [350 1300];
+        X0 = ones(1,5)*1e-3;
+        parms.CB.analytical = 1;
         
     elseif j == 5
         parms.type = 'crossbridge_new';
@@ -140,7 +142,7 @@ for j = 1:5
     [t0,x0] = ode113(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
 
     %% simulate stretch
-    parms.exp.u = ustretch;
+    parms.exp.u = u_imposed;
 
     [t1,x1] = ode113(@cfxc.sim_muscle, [0 parms.exp.tstop], x0(end,:), parms.set.odeopt, parms);
     t = [t0; t1+t0(end)];
@@ -148,30 +150,43 @@ for j = 1:5
 
     figure(1)
     for i = 1:3
-        subplot(1,3,i)
+        subplot(2,3,i)
         plot(t, x(:,i+1)./parms.CB.Xmax(i)); hold on
     end
+    Fss = x(end,3)/parms.CB.Xmax(2);
     
-        figure(2)
     for i = 1:3
-        subplot(1,3,i)
+        subplot(2,3,i+3)
         plot(t, x(:,i+1)); hold on
     end
     
     n0 = cfxc.n_func(x0(end,2), x0(end,3), x0(end,4), parms.CB);
     n1 = cfxc.n_func(x1(end,2), x1(end,3), x1(end,4), parms.CB);
     
-    figure(3)
+    figure(2)
     plot(parms.CB.xi, n0,'--','color',color(j,:)); hold on
     plot(parms.CB.xi, n1,'color',color(j,:)); hold on
+    
 end
 
 %%
-figure(2)
+figure(1)
 legend('Zahalak ana','Zahalak num','vanderZee ana','vanderZee num','ripping')
 
-figure(3)
+figure(2)
 legend('Zahalak ana','-','Zahalak num', '-','vanderZee ana','-','vanderZee num', '-','ripping','-')
+
+figure(3)
+parms.type = 'crossbridge_new';
+
+
+fv.vHill = linspace(-12,6,100);
+[fv.FCB, parms] = cfxc.evaluate_DM(fv.vHill, parms);
+
+
+figure(3)
+plot(fv.vHill, fv.FCB, '-', u_imposed*parms.CB.h/(.5*parms.CB.s), Fss,'o')
+
 
 %% compare dx 
 parms.type = 'crossbridge';
