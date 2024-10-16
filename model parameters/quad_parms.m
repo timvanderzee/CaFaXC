@@ -35,6 +35,8 @@ parms.CB.f = 140;
 
 % option to refit
 fit_CB = [];
+parms.type = 'crossbridge';
+parms.CB.ratefunc_type = 'Zahalak1981';
 [parms, fv] = cfxc.fit_CB_on_Hill(parms, fv,fit_CB);
 cfxc.compare_fv(fv, parms)
 
@@ -86,6 +88,11 @@ parms.ce.tauR = [.06 .02]; % [s], forward and backward force facilitation dynami
 
 % fit time constants on twitch and tetanus data (using Hill-type)
 parms.type = 'CaFaXC';
+
+
+parms.exp.phi = 90; % joint angle (full extension = 0)
+parms.ce.amin = 1e-3; % minimal excitation
+parms = cfxc.calc_x0(parms); 
 
 %% saving
 if save_parms

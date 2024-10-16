@@ -28,7 +28,6 @@ parms.CB.gaussian.IG{4} = @(x, c, G, IG1) 0.5 * c(2) * (2 * c(2)^2 + 3*c(3)) * I
 
 parms.CB.K = 50;
 
-
 %% determine force-velocity
 if ishandle(10), close(10); end
 
@@ -63,6 +62,8 @@ parms.CB.k2 = 10;
 parms.CB.f = 1000;
 parms.CB.g = [1000 2100/2 88];
 
+%%
+parms.CB.Xmax = [.5 .5 .6 0 1];
 parms.type = 'crossbridge_new';
 [fv.FCB(:,5), parms] = cfxc.evaluate_DM(fv.vHill, parms);
 

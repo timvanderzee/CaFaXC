@@ -223,8 +223,14 @@ classdef cfxc < handle
 
     function[dX] = sim_muscle(t, x, parms)
         
-        dX = x(:);
-        
+        if parms.set.sim_mtc
+            parms.exp.lmtc = x(end);
+            xm = x(1:end-1); % muscle state
+        else
+            xm = x;
+        end
+
+        dX = xm(:);        
 %       disp(t)
       Ca = x(1);
 
@@ -248,41 +254,39 @@ classdef cfxc < handle
           dX(1,1) = 0;
       end
            
-      if parms.set.sim_mtc
-          parms.exp.lmtc = x(end);
-      end
-
       if strcmp(parms.type, 'crossbridge')
-        dX(2:end,1) = cfxc.crossbridge(Ca, x(2:end), parms);
+        dX(2:end,1) = cfxc.crossbridge(Ca, xm(2:end), parms);
         
       elseif strcmp(parms.type, 'crossbridge_v2')
-        dX(2:4,1) = cfxc.crossbridge_v2(Ca, x(2:4), parms);
+        dX(2:4,1) = cfxc.crossbridge_v2(Ca, xm(2:4), parms);
       
       elseif strcmp(parms.type, 'crossbridge_new')
-        dX(2:end,1) = cfxc.crossbridge_new(Ca, x(2:end), parms);
+        dX(2:end,1) = cfxc.crossbridge_new(Ca, xm(2:end), parms);
       
       elseif strcmp(parms.type, 'Huxley')
-        dX(2:(parms.CB.nbins+2),1) = cfxc.crossbridge_original(Ca, x(2:end), parms);
+        dX(2:(parms.CB.nbins+2),1) = cfxc.crossbridge_original(Ca, xm(2:end), parms);
         
       elseif strcmp(parms.type, 'Hill-type')
-        dX(2,1) = cfxc.Hill_type(Ca, x(2), parms);
+        dX(2,1) = cfxc.Hill_type(Ca, xm(2), parms);
 
       elseif strcmp(parms.type, 'CaFaXC')
-        dX(2,1) = parms.func.fac(Ca, x(2), parms); % facilitation dynamics
-        dX(3:6,1) = cfxc.crossbridge(x(2), x(3:6), parms); % cross-bridge dynamics
+        dX(2,1) = parms.func.fac(Ca, xm(2), parms); % facilitation dynamics
+         r = parms.func.sigmoid(Ca, parms);
+        dX(3:end,1) = cfxc.crossbridge(r, xm(3:end), parms); % cross-bridge dynamics
         
       elseif strcmp(parms.type, 'CaFaXC_v2')
-        dX(2,1) = parms.func.fac(Ca, x(2), parms); % facilitation dynamics
-        dX(3:end,1) = cfxc.crossbridge_v2(x(2), x(3:end), parms); % cross-bridge dynamics        
+        dX(2,1) = parms.func.fac(Ca, xm(2), parms); % facilitation dynamics
+        dX(3:end,1) = cfxc.crossbridge_v2(xm(2), xm(3:end), parms); % cross-bridge dynamics        
       
       elseif strcmp(parms.type, 'CaFaC')
-        dX(2,1) = parms.func.fac(Ca, x(2), parms); % facilitation dynamics
-        dX(3,1) = cfxc.Hill_type(x(2), x(3), parms); % Hill-type dynamics      
+        dX(2,1) = parms.func.fac(Ca, xm(2), parms); % facilitation dynamics
+        r = parms.func.sigmoid(Ca, parms);
+        dX(3,1) = cfxc.Hill_type(r, xm(3), parms); % Hill-type dynamics      
       end
       
       % if we're simulating the lmtc
       if parms.set.sim_mtc
-          dX(end,1) = parms.exp.vmtc;
+          dX(end+1,1) = parms.exp.vmtc;
       end
     end
     
@@ -307,7 +311,7 @@ classdef cfxc < handle
         X = [y.Ca y.Fse y.lce];
 
         % contractile element force
-        if strcmp(parms.type,'crossbridge')
+        if strcmp(parms.type,'crossbridge') || strcmp(parms.type,'crossbridge_new')
             y.Fce = x(:,3) /(parms.CB.Xmax(2)/parms.ce.Fmax);
         elseif  strcmp(parms.type,'CaFaXC')
             y.Fce = x(:,4) /(parms.CB.Xmax(2)/parms.ce.Fmax);
@@ -431,12 +435,11 @@ end
                 beta(i) = 1/i * (2 * parms.CB.f * 1) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
                 
                 % phi: whatever is activation-independent          
-                phi(i) = parms.CB.g(1) * (IGs(4) - IGs(2)) ...
+                phi(i) = parms.CB.g(1) * (IGs(3) - IGs(2)) ...
                        + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
                        + parms.CB.k    * (IGs(4) - IGs(3)) ...
                        - 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...
                        + 1/i * (2 * parms.CB.f * (R+Q0)) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
-
             end
         
       end
@@ -531,8 +534,7 @@ end
     end
     
       function[Xd] = crossbridge_new(r, x, parms)
-        % Zahalak derivative function with 3 states (the Qs)
-        % based on Zahalak & Ma (1990), J. Biomech. Eng.
+
 
         %% retrieve states
         Q0 = x(1); 
@@ -542,14 +544,15 @@ end
         % we use Q1 here instead of Fcerel, otherwise difficult to
         % determine Xmax
 %         DRX = r * (parms.CB.k1 + parms.CB.kF*Q1) / (parms.CB.k1 + parms.CB.kF*Q1 + parms.CB.k2);  
-        DRX = r;
+%         DRX = r;
         
         if length(x)<4
             R = 0;
         else
             R = x(4);
         end
-        
+
+
         % rate constants
         parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
         parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
@@ -564,23 +567,31 @@ end
             alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
 
             % either length is a quasi-state, or we need to calculate it
-            if length(x) > 3
-            lce = x(4);
+            if (length(x) > 4 && ~parms.thin_filament_coop) || (length(x) > 5)
+                lce = x(end);
             else
-            lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
+                lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
             end
 
             if parms.set.optimum
-            a = parms.exp.a; % in case you assume optimum length
+                  a = parms.exp.a; % in case you assume optimum length
             else, a = parms.func.fce(lce, parms); % in case you use force-length relation
+            end
+        
+            if parms.thin_filament_coop
+                Non = x(5);
+            else
+                Non = a*r;
             end
 
             % calculate velocity
-            Q1dot = a * DRX * beta(2) - phi(2); % velocity-independent Q1dot
+            Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
             [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
 
             if parms.set.no_tendon
-            u = alpha * parms.exp.vmtc;
+                u = alpha * parms.exp.vmtc;
+                vcerel = u * gamma;
+                vce = vcerel * parms.ce.lceopt;
             end
 
         else
@@ -589,17 +600,40 @@ end
             a = parms.exp.a;
         end
 
-        %% state derivates
-        Qd0 = a * DRX * beta(1) - phi(1);
-        Qd1 = a * DRX * beta(2) - phi(2) + 1 * u * Q0;
-        Qd2 = a * DRX * beta(3) - phi(3) + 2 * u * Q1;
+       
+        if parms.thin_filament_coop
+            Non = x(5);
+        else
+            Non = a*r;
+        end
+
+        %% state derivates (note: removed r)
+        Qd0 = Non * beta(1) - phi(1);
+        Qd1 = Non * beta(2) - phi(2) + 1 * u * Q0;
+        Qd2 = Non * beta(3) - phi(3) + 2 * u * Q1;
+
+        %% thin filament activation        
+        if parms.thin_filament_coop
+            
+        % Campbell 2018
+        Ntot = a * r;
+        Jon = 1/2 * parms.CB.kon  * (Ntot-Non)       * (1 + parms.CB.kcoop * Non);
+        Joff =      parms.CB.koff * (Non-Q0)    * (1 + parms.CB.kcoop * (Ntot-Non));
+
+        Nond = Jon - Joff;
+        
+        else
+            Nond = [];
+        end
 
         % total state derivative vector
-        if length(x) > 4
-        Xd = [Qd0; Qd1; Qd2; Rd; vce];
+        if length(x) > 5
+            Xd = [Qd0; Qd1; Qd2; Rd; Nond; vce];
         else
-        Xd = [Qd0; Qd1; Qd2; Rd];
+            Xd = [Qd0; Qd1; Qd2; Rd; Nond];
         end
+        
+        Xd = Xd(1:length(x));
 
       end
     
@@ -611,6 +645,7 @@ end
     Q0 = x(1); 
     Q1 = x(2); 
     Q2 = x(3); 
+
 
     % rate constants
     parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
@@ -625,9 +660,9 @@ end
         gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
         alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
 
-        % either length is a quasi-state, or we need to calculate it
-    if length(x) > 3
-        lce = x(4);
+    % either length is a quasi-state, or we need to calculate it
+    if (length(x) > 3 && ~parms.thin_filament_coop) || length(x) > 4
+        lce = x(end);
     else
         lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
     end
@@ -636,13 +671,21 @@ end
         a = parms.exp.a; % in case you assume optimum length
     else, a = parms.func.fce(lce, parms); % in case you use force-length relation
     end
-    
+
+    if parms.thin_filament_coop
+        Non = x(4);
+    else
+        Non = a*r;
+    end
+
     % calculate velocity
-    Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
+    Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
     [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
     
     if parms.set.no_tendon
-      u = alpha * parms.exp.vmtc;
+        u = alpha * parms.exp.vmtc;
+        vcerel = u * gamma;
+        vce = vcerel * parms.ce.lceopt;
     end
 
     else
@@ -651,16 +694,27 @@ end
      a = parms.exp.a;
     end
 
+    if parms.thin_filament_coop
+        % Campbell 2018 adjusted
+        Ntot = a * r;
+        Jon = 1/2 * parms.CB.kon  * (Ntot-Non)       * (1 + parms.CB.kcoop * Non);
+        Joff =      parms.CB.koff * (Non-Q0)    * (1 + parms.CB.kcoop * (Ntot-Non));
+
+        Nond = Jon - Joff;
+    else
+        Nond = [];
+    end
+
     %% state derivates
-    Qd0 = a * r * beta(1) - phi(1);
-    Qd1 = a * r * beta(2) - phi(2) + 1 * u * Q0;
-    Qd2 = a * r * beta(3) - phi(3) + 2 * u * Q1;
+    Qd0 = Non * beta(1) - phi(1);
+    Qd1 = Non * beta(2) - phi(2) + 1 * u * Q0;
+    Qd2 = Non * beta(3) - phi(3) + 2 * u * Q1;
     
     % total state derivative vector
-    if length(x) > 3
-        Qd = [Qd0; Qd1; Qd2; vce];
+    if length(x) > 4
+        Qd = [Qd0; Qd1; Qd2; Nond; vce];
     else
-        Qd = [Qd0; Qd1; Qd2];
+        Qd = [Qd0; Qd1; Qd2; Nond];
     end
     
     end
@@ -707,6 +761,8 @@ end
     if parms.set.no_tendon
         alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
         u = alpha * parms.exp.vmtc;
+        vcerel = u * gamma;
+        vce = vcerel * parms.ce.lceopt;        
     end
 
     else
@@ -776,6 +832,8 @@ end
 
       if parms.set.no_tendon
           u = alpha * parms.exp.vmtc;
+        vcerel = u * gamma;
+        vce = vcerel * parms.ce.lceopt;          
       end
 
       % estimate spatial derivative
@@ -816,6 +874,8 @@ end
 
       Lse = parms.exp.lmtc - lce;
       Fse = parms.func.fse((Lse-parms.see.lse0)/parms.see.lse0,parms) * parms.ce.Fmax;
+      
+      a(a<parms.ce.amin) = parms.ce.amin;
 
       if Lse <= parms.see.lse0
         Fse = 0;
@@ -838,8 +898,7 @@ end
       end
     end
 
-    function[parms] = calc_x0(parms)
-
+    function[parms] = calc_l0(parms)
     % lmtc
     parms.exp.lmtc = parms.func.lmtc(parms.exp.phi, parms);
 
@@ -859,6 +918,12 @@ end
 
     % now we also know the myofilament overlap force-length parameter
     parms.exp.a = parms.func.fce(parms.exp.l0, parms);
+  end
+  
+    function[parms] = calc_x0(parms)
+
+   % calc l0
+    parms = cfxc.calc_l0(parms);
 
     % now we can compute the crossbridge distribution for a certain (minimum) activation
     parms.exp.u = 0;
@@ -868,24 +933,38 @@ end
     nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
     LB = -inf * ones(size(parms.CB.Xmax));
     LB(1) = 1e-6; % Q0 can't be 0
+    LB(4) = 1e-6; % R can't be <0
+    LB(5) = 1e-6; % DRX can't be <0
+    UB = ones(1,6);
 
     % isometric
     opt = optimset('Display','off');
-    X0 = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.ce.amin * parms.CB.Xmax, [],[],[],[],LB,[],nlincon_func, opt);
-
-    % find the distribution using root finding on derivatives
-%     X0 = fminsearch(@(X) cfxc.find_steadystate(X, parms), zeros(1,3), opt);
-
+    [X0, fval] = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.ce.amin * parms.CB.Xmax, [],[],[],[],LB(1:length(parms.CB.Xmax)),UB(1:length(parms.CB.Xmax)), nlincon_func, opt);
+    
     % initial conditions
     parms.exp.x0 = [parms.ce.amin X0 parms.exp.l0];
+    
+    if fval > 1e-3
+        parms.exp.stim_type = 'constant';
+        parms.exp.A = parms.ce.amin;
+        [t,x] = ode113(@cfxc.sim_muscle, [0 5], [parms.ce.amin parms.ce.amin * parms.CB.Xmax], parms.set.odeopt, parms);
+        X0 = x(end,:);
+        parms.exp.x0 = [X0 parms.exp.l0];
+    end
     
     % calc Xmax
     opt = optimset('Display','on');
     parms.exp.A = 1;
-    parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.CB.Xmax, [],[],[],[],LB,[],nlincon_func, opt);
+    parms.exp.a = 1;
+    [parms.CB.Xmax, fval] = fmincon(@(X) cfxc.find_steadystate(X, parms), parms.CB.Xmax, [],[],[],[],LB(1:length(parms.CB.Xmax)),[],nlincon_func, opt);
       
+    % simulate if result is not satisfying
+    if fval > 1e-3
+        [t,x] = ode113(@cfxc.sim_muscle, [0 5], parms.exp.x0(1:end-1), parms.set.odeopt, parms);
+        parms.CB.Xmax = x(end,2:end);
     end
-
+    
+    end
 
     function[cost] = find_l0(L0, parms)
 
@@ -994,57 +1073,65 @@ end
 
     % this function assumes CaFaXC 
     function dstate = sim_segment(t,state,parms)
+       
       
-      joint_rad = state(end-1);
-      joint_deg = joint_rad*180/pi;
-      djointdt  = state(end);
-      dmtcdt    = parms.mtc.r*djointdt; %
+      phi_deg       = state(end-1);
+      omega_deg     = state(end); 
+     
+      phi_rad   = phi_deg * pi/180;
+      omega_rad = omega_deg * pi/180;
+
+      % larger angle -> muscle shortening
+      dmtcdt    = -parms.mtc.r * omega_rad; %
       
       % before calling sim_muscle, we need to set two paramters:
       %parms.exp.vmtc
       %parms.exp.lmtc
-      lmtc_cur    = parms.func.lmtc(joint_deg,parms);
+      lmtc_cur    = parms.func.lmtc(-phi_deg,parms);
       parms.exp.vmtc  = dmtcdt;
       parms.exp.lmtc  = lmtc_cur; 
 
-      dmusdt    = cfxc.sim_muscle(t,state(1:end-2),parms);
+      % muscle derivative
+      dmusdt    = cfxc.sim_muscle(t, state(1:end-2),parms);
       
-      % this will give muscle velocity, but nothing guarantees that the force of the tendon is what
-      % it says; see zahalak 86 
-      % C(F) = dL_tendon/dF
-      % for a linear tendon, F = k*(l-lrest),
-      % the length function l = F/k + lrest
-      % so the compliance function is 1/k. 
-      % for u(t) to be scaled up to match the tendon with which it is
-      % connected, the compliance function needs to be used when computing muscle length.
+      % state to output
+      [y,X] = cfxc.get_model_output(t, state(1:(end-2))', parms);
 
-      %fcheck
-      lce          = state(6);
-      dlse_rel     = (lmtc_cur - lce-parms.see.lse0)/parms.see.lse0;
-      force_tendon = parms.func.fse(dlse_rel,parms) * parms.ce.Fmax;
-      q1           = state(4);
-      force_q1F    = q1/(parms.CB.Xmax(2)/parms.ce.Fmax);
-
+      % pendulum dynamics
       r_gyr     = 0.2;
       M         = 5;
       I         = M*r_gyr^2; %ml^2
+ 
       g         = 9.81;
-      world_rad = -joint_rad+pi/2;
-      r_g       = r_gyr*sin(world_rad);
-      tau_g     = -r_g*M*9.81;
-      tau_mus   = force_tendon*parms.mtc.r;
-      ddworlddt2= (tau_mus + tau_g)/I;
-      ddjointdt2= -ddworlddt2;
-      dstate    = [dmusdt;djointdt;ddjointdt2];
+      r_g       = r_gyr*cos(phi_rad);
+      tau_g     = -r_g * M*g;
+      tau_mus   = y.Fse*parms.mtc.r;
+      
+      % passive joint torque
+%       tau_p = -(100 * joint_rad.^2) .* (joint_rad < 0);
+      
+      alpha_rad = (tau_mus + tau_g)/I;
+      alpha_deg = alpha_rad * 180/pi;
+
+      if strcmp(parms.mode,'pre-movement')
+          alpha_deg = -parms.A * (2*pi*parms.f)^2*cos(2*pi*t*parms.f);
+          omega_deg = -parms.A * 2*pi*parms.f*sin(2*pi*t*parms.f);
+      end
+          
+          
+%       ddjointdt2= -ddworlddt2;
+      dstate    = [dmusdt;omega_deg;alpha_deg];
     end
 
-    function clcs = demo_sim_leg()
+    function clcs = demo_sim_leg(parms)
       
       % knee extension movement, begin knee bent straight down.
       phi_rad_0 = 0;
 
-      parms = load('quad_parms.mat','parms');
-      parms = parms.parms;
+      if isempty(parms)
+      load('quad_parms.mat','parms');
+      end
+      
       parms.exp.phi = phi_rad_0 * 180/pi;
       
       parms = cfxc.calc_x0(parms); 
@@ -1336,28 +1423,35 @@ end
     end
     
    
-function[FCB, parms] = evaluate_DM(vHill, parms)
+function[FCB, parms] = evaluate_DM(v, parms)
 
     % non-linear inequality constraint
     nlincon_ineq = @(X) (X(2)/X(1))^2 - X(3)/X(1); % < 0
     nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
-    LB = [1e-6 -inf -inf 1e-6]; % Q0 can't be 0
+    LB = [1e-6 -inf -inf 1e-6 1e-6]; % Q0 can't be 0
 
     % isometric conditions
     parms.exp.u = 0;
-%     parms.type = 'crossbridge';
     parms.exp.a = 1; % at optimum length
     parms.exp.A = 1; % maximal excitation
-
+    parms.exp.stim_type = 'max';
+    parms.set.fixed_velocity = 1;
+    
     % isometric
     opt = optimset('Display','off');
     X0 = parms.CB.Xmax;
     
-    parms.CB.Xmax = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
-
+    [parms.CB.Xmax, fval] = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
+    
+    if fval > 1e-3
+        disp('Could not solve isometric steady-state, simulating ...')
+        [t,x] = ode113(@cfxc.sim_muscle, [0 5], [1 X0], parms.set.odeopt, parms);
+        parms.CB.Xmax = x(end,2:end);
+    end
+    
     % concentric
-    id = vHill<=0;
-    vs = flip(vHill(id));
+    id = v<=0;
+    vs = flip(v(id));
 
     Xmax = nan(length(vs), length(X0));
     cost = nan(length(vs), 1);
@@ -1370,16 +1464,22 @@ function[FCB, parms] = evaluate_DM(vHill, parms)
         end
 
         % need to use fmincon because of nonlinear constraints violated with fminsearch
-        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
+        [Xmax(i,:), cost(i)] = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
+        
+        if cost(i) > 1e-3
 
-        cost(i) = cfxc.find_steadystate(Xmax(i,:), parms);
+            disp(['Could not solve concentric steady-state (',num2str(i),'/', num2str(length(vs)), '), simulating ...'])
+            [~,x] = ode113(@cfxc.sim_muscle, [0 1], [1 parms.CB.Xmax], parms.set.odeopt, parms); 
+            Xmax(i,:) = x(end,2:end);
+
+        end
     end
 
     FCB_con = flip(Xmax(:,2)) / parms.CB.Xmax(2);
 
     % eccentric
-    id = vHill>0;
-    vs = vHill(id);
+    id = v>0;
+    vs = v(id);
 
     Xmax = nan(length(vs), length(X0));
     cost = nan(length(vs), 1);
@@ -1391,9 +1491,16 @@ function[FCB, parms] = evaluate_DM(vHill, parms)
         end
 
         % need to use fmincon because of nonlinear constraints violated with fminsearch
-        Xmax(i,:) = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
-
-        cost(i) = cfxc.find_steadystate(Xmax(i,:), parms);
+        [Xmax(i,:), cost(i)] = fmincon(@(X) cfxc.find_steadystate(X, parms), X0, [],[],[],[],LB(1:length(X0)),[],nlincon_func, opt);
+        
+        % if cost too large, we need to simulate
+        if cost(i) > 1e-3
+            
+            disp(['Could not solve eccentric steady-state (',num2str(i),'/', num2str(length(vs)), '), simulating ...'])
+           [~,x] = ode113(@cfxc.sim_muscle, [0 1], [1 parms.CB.Xmax], parms.set.odeopt, parms); 
+           Xmax(i,:) = x(end,2:end);
+            
+        end
     end
 
     FCB_ecc = Xmax(:,2) / parms.CB.Xmax(2);
@@ -1532,6 +1639,30 @@ function[parms] = gen_parms(parms)
 
     % pennation
     parms.ce.pennation = 0;
-  end
-  end
+end
+  
+function[T,X] = stretch_protocol(as, vs, ts, parms, type)
+    
+    T = 0;
+    X = parms.exp.x0;
+    
+    for i = 1:length(vs)
+    
+        if strcmp(type,'muscle')
+            parms.exp.u = vs(i);
+        elseif strcmp(type,'muscle-tendon')
+            parms.exp.vmtc = vs(i);
+        end
+        
+        parms.exp.A = as(i);
+        tmax = ts(i);
+        
+        [t,x] = ode113(@cfxc.sim_muscle, [0 tmax], X(end,:), parms.set.odeopt, parms);
+
+        T = [T; t+T(end)];
+        X = [X; x];
+    end
+end
+
+end
 end

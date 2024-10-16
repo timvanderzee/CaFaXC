@@ -25,13 +25,22 @@ close all
 
 
 %% activation
-parms.type = 'crossbridge';
-parms.CB.Xmax = [.5 .5 .5];
+parms.CB.k1 = .5;
+parms.CB.kF = 50;
+parms.CB.k2 = 5;
+
+
+
+parms.type = 'crossbridge_new';
+parms.CB.Xmax = [.3 .3 .4 0 .5];
+% parms.CB.Xmax = [.3 .3 .4];
+
 parms.CB.f = 350;
 parms.CB.g = [350 1300 80];
 X0 = ones(1,4)*1e-3;
 
 parms.CB.ratefunc_type = 'vanderZee2024';
+% parms.CB.ratefunc_type = 'Zahalak1981';
 
 % parms.type = 'crossbridge';
 % parms.CB.Xmax = [1/2 1/4 1/6];
@@ -52,18 +61,64 @@ parms.exp.tstop = .05;
 parms.ce.amin = 1e-3; % minimal excitation
 parms = cfxc.calc_x0(parms); 
 
+
+%%
 As = linspace(0,1,10);
+X0 = parms.exp.x0;
+
+% close all
+parms.exp.tstop = 1;
+parms.set.fixed_velocity = 0;
+parms.set.optimum = 1;
+parms.set.no_tendon = 0;
 
 for i = 1:length(As)
     parms.exp.A = As(i);
-    [t,x] = ode113(@cfxc.sim_muscle, [0 parms.exp.tstop], X0, parms.set.odeopt, parms);
+    [t,x] = ode113(@cfxc.sim_muscle, [0 5], X0, parms.set.odeopt, parms);
 
-    figure(1)
-    for j = 1:3
-        subplot(1,3,j)
-        plot(t, x(:,j+1)./parms.CB.Xmax(j)); hold on
+    figure(2)
+    for j = 1:size(x,2)
+        subplot(1,size(x,2),j)
+        plot(t, x(:,j)); hold on
+        
+        if j > 1 && j < size(x,2)
+            plot(t(end), parms.CB.Xmax(j-1),'o')
+        end
     end
+    
+    Fss(i) = x(end,3);
 end
+
+figure(3)
+plot(As, Fss)
+
+% xss = x(end,2:end);
+% cfxc.find_steadystate(xss, parms)
+
+%% recalc Fse
+[y,X] = cfxc.get_model_output(t, x, parms);
+close all
+figure(3)
+plot(t, y.Fse); hold on
+plot(t, y.Fce)
+plot(t, y.Fpe)
+
+%% try to get force-velocity
+fv.vHill = linspace(-7,3.5,20);
+[fv.FCB, parms] = cfxc.evaluate_DM(fv.vHill, parms);
+
+
+
+%%
+% close all
+figure(1); hold on
+plot(fv.vHill, fv.FCB)
+
+
+
+
+
+
 
 %%
 close all
