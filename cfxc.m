@@ -444,7 +444,59 @@ end
         
       end
     end
-          function[phi] = analytical_solution_zahalak(Q0, Q1, Q2,parms)          
+      function[beta, phi, Rd] = beta_phi_func_v3(Q0,Q1,Q2,R,SRX,parms)
+        % idea: could consider removing this and just adding additional
+        % terms to the phi calculated by beta_phi_func (and adding Rd).
+        % Would need to add g3 calculations, and set g3 = 0 if ripping.
+        % Might be same with SRX state, need to discount crossbridges in
+        % this state in the phi term.
+                
+        % for a model with a ripped state
+
+        Q = [Q0 Q1 Q2];
+        
+        eps = 1e-6;
+
+        p = Q(2)/max(Q(1), eps); % Eq. 52
+        q = sqrt(max(Q(3)/max(Q(1), eps) - (Q(2)/max(Q(1), eps))^2, eps));  % Eq. 52
+
+        c = [Q(1) ./ (sqrt(2*pi)*q) p 2*q^2];
+        
+%         D = 1 - Q0 - R;
+        
+        phi = nan(1,3);
+        beta = nan(1,3);
+    
+      if parms.CB.analytical
+          
+            for i = 1:3
+                % points were integrals is evaluated
+                xi = [-parms.CB.K 0 parms.CB.dLcrit parms.CB.K];
+
+                if i == 1
+                    % most expensive line (50% CPT)
+                    IGs = parms.CB.gaussian.IG{1}(xi, c);
+                    Rd = (parms.CB.k * (IGs(4) - IGs(3)) -  (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w) - (parms.CB.ps-parms.CB.w))); 
+                else
+                    IGs = parms.CB.gaussian.IG{i}(xi, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
+                end
+                
+                % beta: whatever is activation-dependent
+                beta(i) = 1/i * (2 * parms.CB.f * 1) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
+                
+                % phi: whatever is activation-independent          
+                phi(i) = parms.CB.g(1) * (IGs(3) - IGs(2)) ...
+                       + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
+                       + parms.CB.k    * (IGs(4) - IGs(3)) ...
+                       - 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...
+                       + 1/i * (2 * parms.CB.f * (R+Q0+SRX)) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
+            end
+        
+      end
+    end
+     
+
+    function[phi] = analytical_solution_zahalak(Q0, Q1, Q2,parms)          
         eps = 1e-6; 
     %     eps = 0;
         Q0c = max(Q0, eps);
@@ -586,7 +638,8 @@ end
 
             % calculate velocity
             Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
-            [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
+            [ks,kp] = cfxc.get_kse_kpe(lce, parms);
+            [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, parms.CB.Xmax(2), parms);
 
             if parms.set.no_tendon
                 u = alpha * parms.exp.vmtc;
@@ -680,7 +733,8 @@ end
 
     % calculate velocity
     Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
-    [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
+   [ks,kp] = cfxc.get_kse_kpe(lce, parms);
+    [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, parms.CB.Xmax(2), parms);
     
     if parms.set.no_tendon
         u = alpha * parms.exp.vmtc;
@@ -756,7 +810,9 @@ end
 
     % calculate velocity
     Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
-    [vce, u] = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, parms.CB.Xmax(2), parms);
+   [ks,kp] = cfxc.get_kse_kpe(lce, parms);
+fmax = parms.CB.Xmax(2);
+    [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, fmax, parms);
 
     if parms.set.no_tendon
         alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
@@ -827,7 +883,8 @@ end
     Q0 = trapz(parms.CB.xi, n);
     Q1dot = trapz(parms.CB.xi, ndot0 .* parms.CB.xi);
 
-    vce = cfxc.enforce_forcerate_constraint(lce, Q0, Q1dot, fmax, parms);
+   [ks,kp] = cfxc.get_kse_kpe(lce, parms);
+    vce = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, fmax, parms);
    
 
       if parms.set.no_tendon
@@ -851,24 +908,29 @@ end
 
     end
     
-    function[vce, u] = enforce_forcerate_constraint(lce, Q0, Q1dot, fmax, parms)
-        
+    function[vce, u] = enforce_forcerate_constraint(Q0,ks,kp,Q1dot, vmtc, fmax, parms)
+        % ks and kp should be relative to lceopt
+
         gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
        
-        % determine elastic stiffnesses
-        dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
-        kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
-        ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
-
         % calculate velocity that assures that forces are compatible at next time step
-        vcerel = (parms.exp.vmtc/parms.ce.lceopt * ks - Q1dot/fmax) ...
+        vcerel = (vmtc/parms.ce.lceopt * ks - Q1dot/fmax) ...
         / (ks + kp + Q0/(fmax*gamma));
 
         % back to crossbridge
         u = vcerel / gamma;
         vce = vcerel * parms.ce.lceopt;
     end
-    
+
+    function[ks,kp] = get_kse_kpe(lce, parms)
+
+        % determine elastic stiffnesses
+        dlse_rel = ((parms.exp.lmtc - lce) - parms.see.lse0) / parms.see.lse0;
+        kp = parms.func.kpe(lce, parms) * (parms.ce.lceopt / parms.ce.Fmax);
+        ks = parms.func.kse(dlse_rel,parms) * (parms.ce.lceopt/parms.see.lse0); % expressed relative to lceopt
+
+    end
+
 
     function[Vce] = Hill_type(a, lce, parms)
 
@@ -1664,5 +1726,57 @@ function[T,X] = stretch_protocol(as, vs, ts, parms, type)
     end
 end
 
+function[] = state_plot(t,x,titles, ls, color)
+
+    S = size(x,2);
+
+    if S < 6
+        N = 1;
+        M = 6;
+    elseif S == 6
+        N = 2;
+        M = 3;
+    elseif S > 6 && S < 9
+        N = 2;
+        M = 4;
+    elseif S == 9
+        N = 3;
+        M = 3;
+    elseif S > 9 && S < 12
+        N = 3;
+        M = 4;
+    elseif S == 12
+        N = 2;
+        M = 6;
+    elseif S > 12 && S < 15
+        N = 2;
+        M = 7;
+    elseif S == 15
+        N = 3;
+        M = 5;
+     elseif S == 16
+        N = 4;
+        M = 4;
+     end
+
+    if nargin < 4
+        ls = '-';
+    end
+
+    if nargin < 5
+        color = 'blue';
+    end
+
+    for i = 1:S
+        subplot(N,M,i);
+        plot(t, x(:,i),'linestyle',ls,'color',color); hold on
+
+        if nargin > 2
+            title(titles{i})
+        end
+
+    end
+
+end
 end
 end

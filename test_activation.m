@@ -1,20 +1,21 @@
-close all; clc; clear all
+% close all; clc; clear all
 
 
 parms.a = 1;
 
-parms.f = [20 300];
-parms.g = [20 300];
+parms.f = [1 300];
+parms.g = [1 300];
 parms.u = 0.5;
 
 parms.k = 50;
 
-
 lw = {'-','--'};
 
 ks = linspace(0,1,10);
+% ks = 0;
 color = [linspace(0,1,length(ks))' linspace(1,0,length(ks))', zeros(length(ks),1)];
 
+% ks = 1;
 parms.a = 1;
 parms.u = .5;
 tmax = .5;
@@ -23,7 +24,9 @@ parms.r = 1;
 
 for i = 1:length(ks)
 %     parms.r = ks(i);
-parms.a = ks(i);
+    parms.a = ks(i);
+
+%     parms.k = ks(i);
 
     parms.f(2) = 300;
     [t0,x0] = ode113(@dxfunc, [0 tmax], [0 0], [], parms);
@@ -47,31 +50,34 @@ parms.a = ks(i);
 
     figure(1)
     subplot(121)
-    plot(t, x(:,1),'color',color(i,:)); hold on
+    plot(t, x(:,1)/max(x(:,1)),'color',color(i,:)); hold on
+    ylim([0 1])
 
     subplot(122)
     plot(t, x(:,2),'color',color(i,:)); hold on
+    ylim([0 1])
 end
 % % 
 % figure(2)
 % plot(ks, ttp)
-
+%%
 function[dx] = dxfunc(t, x, parms)
 
 
     N = x(1);
     Q = x(2);
+% 
+    Ntot = parms.a*parms.r;
+    Jon =  parms.f(1)/2 * (Ntot-N)   * (1 + parms.k * N/Ntot);
+    Joff = parms.g(1)   * (N-Q) * (1 + parms.k*(Ntot-N)/Ntot);
 
-    
-    % Campbell 2018
-%     Jon =  parms.f(1)/2 * (parms.r-N)   * (1 + parms.k * N);
-%     Joff = parms.g(1)   * (N-Q/parms.a) * (1 + parms.k*(parms.r-N));
-%     dQ = parms.f(2) * (parms.a*N-Q) - parms.g(2) * Q;
-    
-    Ntot = parms.a * parms.r;
-    Jon =  parms.f(1)/2 * (Ntot-N)   * (1 + parms.k * N);
-    Joff = parms.g(1)   * (N-Q) * (1 + parms.k*(Ntot-N));
     dQ = parms.f(2) * (N-Q) - parms.g(2) * Q;
+    
+%     Ntot = parms.a * parms.r;
+%     Jon =  parms.f(1)/2 * (1-N)   * (1 + parms.k * N);
+%     Joff = parms.g(1)   * (N-Q/Ntot) * (1 + parms.k*(1-N));
+% 
+%     dQ = parms.f(2) * (N*Ntot-Q) - parms.g(2) * Q;
 
     dN = Jon - Joff;
     dx = [dN; dQ];
