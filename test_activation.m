@@ -1,13 +1,13 @@
-% close all; clc; clear all
+close all; clc; clear all
 
 
 parms.a = 1;
 
-parms.f = [1 300];
-parms.g = [1 300];
+parms.f = [3 100];
+parms.g = [3 100];
 parms.u = 0.5;
 
-parms.k = 50;
+parms.k = 10;
 
 lw = {'-','--'};
 

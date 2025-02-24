@@ -11,6 +11,7 @@ show_figs = 1;
 %% start with some general parameters and (anonymous) functions
 parms = cfxc.gen_funcs();
 parms = cfxc.gen_parms(parms);
+parms.thin_filament_coop = 0;
 
 %% Hill-type force-velocity
 parms.ce.vmaxrel    = 6; % [lopt/s] maximal contraction velocity
@@ -26,7 +27,6 @@ fv.vHill = linspace(-parms.ce.vmaxrel, parms.ce.vmaxrel/2);
 fv.FHill = interp1(vHill, FHill, fv.vHill);
 
 [fv.FCB(:,1),fv.n,fv.FCB(:,2)] = cfxc.CB_force_velocity(fv.vHill, parms);
-
 
 %% fit  crossbridge model rates on Hill-type force-velocity relation
 % rates used in the paper
@@ -89,10 +89,10 @@ parms.ce.tauR = [.06 .02]; % [s], forward and backward force facilitation dynami
 % fit time constants on twitch and tetanus data (using Hill-type)
 parms.type = 'CaFaXC';
 
-
 parms.exp.phi = 90; % joint angle (full extension = 0)
 parms.ce.amin = 1e-3; % minimal excitation
 parms = cfxc.calc_x0(parms); 
+
 
 %% saving
 if save_parms

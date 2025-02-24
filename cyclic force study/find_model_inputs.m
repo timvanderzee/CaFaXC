@@ -31,20 +31,28 @@ parms = cfxc.calc_x0(parms);
 %% define kinematics and kinetics
 freqs = 0.5:0.1:4;
 freqs = .5:.5:2.5;
+% freqs = 0.5;
 % freqs = 2.5;
-phi = 20 * ones(length(freqs), N);
-lmtc = parms.func.lmtc(phi, parms);
+
+phis = 20 * ones(length(freqs), N);
+tx = zeros(length(freqs),N);
 
 for f = length(freqs):-1:1
     freq = freqs(f);
     
     tx(f,:) = linspace(0, 1/freq, N);
     Tx = Tamp/2 - Tamp/2 * cos(2*pi*freq*tx(f,:)) + Tmin;
+    
+%     phis(f,:) = sin(2*pi*tx(f,:))*10+10;
+
+
 end
+
+lmtcs = parms.func.lmtc(phis, parms);
 
 figure(1)
 subplot(121); plot(tx', Tx'); title('Kinetics (torque)'); ylabel('Torque (N-m)')
-subplot(122); plot(tx, phi); title('Kinematics (angle)'); ylabel('Angle (deg)')
+subplot(122); plot(tx', phis'); title('Kinematics (angle)'); ylabel('Angle (deg)')
 
 for i = 1:2
     subplot(1,2,i); 
@@ -55,16 +63,17 @@ end
 
 %% find muscle length and velocity
 Fx = Tx ./ parms.mtc.r;
-lse = parms.see.lse0 * parms.func.lse(Fx(f,:)/parms.ce.Fmax, parms) + parms.see.lse0;
-lce = lmtc - lse;
-FL = parms.func.fce(lce, parms);
+lses = parms.see.lse0 * parms.func.lse(Fx(f,:)/parms.ce.Fmax, parms) + parms.see.lse0;
+lces = lmtcs - lses;
+FL = parms.func.fce(lces, parms);
     
+vce = nan(length(freqs), N);
 for f = length(freqs):-1:1
-    vce(f,:) = cfxc.grad5(lce(f,:)', mean(diff(tx(f,:))))'; % positive for shortening
+    vce(f,:) = cfxc.grad5(lces(f,:)', mean(diff(tx(f,:))))'; % positive for shortening
 end
 
 figure(2)
-subplot(131); plot(tx', lce');
+subplot(131); plot(tx', lces');
 subplot(132); plot(tx', FL');
 subplot(133); plot(tx', vce');
 

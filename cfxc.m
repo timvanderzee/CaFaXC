@@ -250,6 +250,11 @@ classdef cfxc < handle
       dX(1,1) = parms.func.act(u, Ca, parms);
       %     Ca(Ca<parms.ce.amin) = parms.ce.amin; % bounds on the minimal activation
 
+% if parms.isokinetic
+%       parms.exp.lmtc = parms.Lfunc(t, parms);
+%       parms.exp.vmtc = parms.Vfunc(t, parms);
+% end
+
       if strcmp(parms.exp.stim_type,'max')
           dX(1,1) = 0;
       end
@@ -270,9 +275,11 @@ classdef cfxc < handle
         dX(2,1) = cfxc.Hill_type(Ca, xm(2), parms);
 
       elseif strcmp(parms.type, 'CaFaXC')
-        dX(2,1) = parms.func.fac(Ca, xm(2), parms); % facilitation dynamics
-         r = parms.func.sigmoid(Ca, parms);
-        dX(3:end,1) = cfxc.crossbridge(r, xm(3:end), parms); % cross-bridge dynamics
+        Act = parms.func.sigmoid(Ca, parms);
+%         Act = Ca;
+
+        dX(2,1) = parms.func.fac(Act, xm(2), parms); % facilitation dynamics
+        dX(3:end,1) = cfxc.crossbridge(xm(2), xm(3:end), parms); % cross-bridge dynamics
         
       elseif strcmp(parms.type, 'CaFaXC_v2')
         dX(2,1) = parms.func.fac(Ca, xm(2), parms); % facilitation dynamics
@@ -293,18 +300,26 @@ classdef cfxc < handle
     function[y,X] = get_model_output(t, x, parms)
         
          dX = nan(size(x))';
-        
+         y.D = nan(1,length(x));
+
          for i = 1:size(x,1)
             dX(:,i) = cfxc.sim_muscle(t(i), x(i,:), parms);
         end
-
         y.vce = dX(end,:)';
+
+        y.lmtc = parms.exp.lmtc;
+        y.vmtc = parms.exp.vmtc;
+        
+%         if parms.isokinetic == 1
+%             y.lmtc = parms.Lfunc(t, parms);
+%             y.mtmc = parms.Vfunc(t, parms);
+%         end
 
         % states
         y.Ca = x(:,1);
         y.lce = x(:,end);
         y.Fpe = parms.func.fpe(y.lce, parms);
-        y.lse = parms.exp.lmtc - y.lce;
+        y.lse = y.lmtc - y.lce;
         y.Fse = parms.func.fse((y.lse-parms.see.lse0)/parms.see.lse0, parms) * parms.ce.Fmax;
         y.Fce2 = y.Fse - y.Fpe;
 
@@ -317,6 +332,13 @@ classdef cfxc < handle
             y.Fce = x(:,4) /(parms.CB.Xmax(2)/parms.ce.Fmax);
             X(:,4) = x(:,2);
             y.Fa = x(:,2); 
+
+         for i = 1:size(x,1)
+            n = cfxc.n_func(x(i,3), x(i,4), x(i,5), parms.CB);
+            n(parms.CB.xi > 1) = 0;
+            y.D(i) = trapz(parms.CB.xi, n.*parms.CB.g_func(parms));
+        end
+
         elseif  strcmp(parms.type,'Hill-type')
             y.Fce = y.Fse - y.Fpe;
         elseif  strcmp(parms.type,'CaFaC')
@@ -394,7 +416,7 @@ end
     end
     
     % moved from find_model_inputs
-    function[beta, phi, Rd] = beta_phi_func_v2(Q0,Q1,Q2,R,parms)
+    function[beta, phi1, phi2, Rd] = beta_phi_func_v2(Q0,Q1,Q2,R,parms)
         % idea: could consider removing this and just adding additional
         % terms to the phi calculated by beta_phi_func (and adding Rd).
         % Would need to add g3 calculations, and set g3 = 0 if ripping.
@@ -411,10 +433,10 @@ end
         q = sqrt(max(Q(3)/max(Q(1), eps) - (Q(2)/max(Q(1), eps))^2, eps));  % Eq. 52
 
         c = [Q(1) ./ (sqrt(2*pi)*q) p 2*q^2];
+       
         
-%         D = 1 - Q0 - R;
-        
-        phi = nan(1,3);
+        phi1 = nan(1,3);
+        phi2 = nan(1,3);
         beta = nan(1,3);
     
       if parms.CB.analytical
@@ -423,28 +445,97 @@ end
                 % points were integrals is evaluated
                 xi = [-parms.CB.K 0 parms.CB.dLcrit parms.CB.K];
 
+                % most expensive line (50% CPT)
+                IGs = parms.CB.gaussian.IG{i}(xi, c);
+
                 if i == 1
-                    % most expensive line (50% CPT)
-                    IGs = parms.CB.gaussian.IG{1}(xi, c);
                     Rd = (parms.CB.k * (IGs(4) - IGs(3)) -  (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w) - (parms.CB.ps-parms.CB.w))); 
-                else
-                    IGs = parms.CB.gaussian.IG{i}(xi, c, parms.CB.gaussian.G, parms.CB.gaussian.IG{1});
                 end
                 
                 % beta: whatever is activation-dependent
                 beta(i) = 1/i * (2 * parms.CB.f * 1) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
                 
-                % phi: whatever is activation-independent          
-                phi(i) = parms.CB.g(1) * (IGs(3) - IGs(2)) ...
-                       + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
-                       + parms.CB.k    * (IGs(4) - IGs(3)) ...
-                       - 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i) ...
-                       + 1/i * (2 * parms.CB.f * (R+Q0)) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
+                % phi1: whatever is activation-independent and SRX-independent          
+                phi2(i) = parms.CB.g(1) * (IGs(3) - IGs(2)) ...
+                        + parms.CB.g(2) * (IGs(2) - IGs(1)) ... % note: changed IGs(1) to IGs(2) in first half
+                        + parms.CB.k(1) * (IGs(4) - IGs(3)) ...
+                        - 1/i * (parms.CB.b * R) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
+
+                % phi1: whatever is activation-independent but SRX-dependent
+                phi1(i) = 1/i * (2 * parms.CB.f * Q0) * ((parms.CB.ps+parms.CB.w)^i - (parms.CB.ps-parms.CB.w)^i);
             end
         
       end
     end
-      function[beta, phi, Rd] = beta_phi_func_v3(Q0,Q1,Q2,R,SRX,parms)
+
+      function[beta, phi1, phi2, Rd] = beta_phi_func_v3(Q0,Q1,Q2,R,parms)
+
+        % put bounds on the moments
+        eps = [1e-6 1e-9];
+        sigma_min = sqrt(eps(2)/eps(1)); % minimal s.d.
+
+        Q0 = max(Q0, eps(1));
+        Q1 = max(Q1, eps(1));
+        Q2 = max(Q2, Q1^2/Q0+eps(2));
+
+        % define some variables
+        p = Q1/Q0; % mean of the distribution
+        q = max(sqrt(max(Q2/Q0 - p^2,0)), sigma_min); % the standard deviation of the distribution
+        
+        % area, mean and scaled scared s.d.
+        c1 = [Q0 p 2*q.^2];
+        c2 = [1 parms.CB.ps 2*parms.CB.w.^2];
+        Q = [Q0 Q1 Q2];
+
+        % points were integrals is evaluated
+        xi = [-parms.CB.K parms.CB.m+parms.CB.ps parms.CB.dLcrit(1) parms.CB.K];
+
+        % analytical
+        phi1 = nan(1,3);
+        phi2s = nan(2,3);
+        beta = nan(1,3);
+        
+%         parms.CB.K = 30;
+%         x = linspace(-parms.CB.K, parms.CB.K, 1000);
+
+        for i = 1:3
+
+%             try
+%             IGs_d = parms.CB.gaussian.IG{i}(xi, c1); % IGs for detachment 
+            IGs_d = parms.CB.gaussian.IG2{i}(xi, c1, Q); % IGs for detachment 
+%             catch
+%             keyboard
+%             end
+%             IGs_a = parms.CB.gaussian.IG{i}(xi, c2); % IGs for attachment
+
+            % breaking
+            phi2s(1,i) = parms.CB.g1 * Q(i) ... % full integral
+                        +parms.CB.g2 * (IGs_d(2) - IGs_d(1)) ...
+                        +parms.CB.g3 * (IGs_d(4) - IGs_d(3));
+
+            % ripping
+%             phi2s(2,i) = +parms.CB.k  * (IGs_d(4) - IGs_d(3)) ...
+%                          -parms.CB.b  * (IGs_a(4) - IGs_a(1)) * R(1);
+            phi2s(2,i) = 0;
+
+            % attaching
+%             beta(1,i) =  parms.CB.f * (IGs_a(end) - IGs_a(1));
+%             phi1(1,i) =  parms.CB.f * (IGs_a(end) - IGs_a(1)) * Q0;
+
+            beta(1,i) =  parms.CB.f * parms.CB.gaussian.IGf{i}(c2);
+            phi1(1,i) =  parms.CB.f * parms.CB.gaussian.IGf{i}(c2) * Q0;
+
+%             betan(1,i) = trapz(x, x.^(i-1).*parms.CB.gaussian.G(x, c2) * parms.CB.f);
+%             phi2n(1,i) = trapz(x, x.^(i-1).*parms.CB.gaussian.G(x, c1) * parms.CB.g1);
+        end
+
+        Rd = phi2s(2,1);
+        phi2 = sum(phi2s);
+
+      end
+
+
+      function[beta, phi, Rd] = beta_phi_func_v4(Q0,Q1,Q2,R,SRX,parms)
         % idea: could consider removing this and just adding additional
         % terms to the phi calculated by beta_phi_func (and adding Rd).
         % Would need to add g3 calculations, and set g3 = 0 if ripping.
@@ -495,6 +586,66 @@ end
       end
     end
      
+    function[beta, phi1, phi2, Rd] = beta_phi_func_v5(Q0,Q1,Q2,R,parms)
+
+        % put bounds on the moments
+        Q = [1e-6 1e-9];
+        sigma_min = sqrt(eps(2)/eps(1)); % minimal s.d.
+
+%         Q0 = max(Q0, eps(1));
+%         Q1 = max(Q1, eps(2));
+%         Q2 = max(Q2, Q1^2/Q0+eps(2));
+
+        % define some variables
+        p = Q1/Q0; % mean of the distribution
+%         q = max(sqrt(max(Q2/Q0 - p^2,0)), sigma_min); % the standard deviation of the distribution
+        q = sqrt(Q2/Q0 - p^2); % the standard deviation of the distribution
+
+        % area, mean and scaled scared s.d.
+        c1 = [Q0 p 2*q.^2];
+        c2 = [1 0 2*parms.CB.w.^2];
+        Q = [Q0 Q1 Q2];
+
+        % points were integrals is evaluated
+%         xi1 = [0 inf];
+        k1 = [parms.CB.k11 parms.CB.k12];
+        k2 = [parms.CB.k21 -parms.CB.k22];
+%         k3 = [parms.k31 -parms.k32];
+
+        % analytical
+        phi1 = nan(1,3);
+        phi2s = zeros(4,3);
+        beta = nan(1,3);
+
+        for i = 1:3
+
+            % breaking
+            phi2s(1,i) = parms.CB.gaussian.IGef{i}(c1,k1);
+            phi2s(2,i) = parms.CB.g1 * Q(i); ... % full integral
+            phi2s(3,i) = parms.CB.gaussian.IGef{i}(c1,k2);
+%             phi2s(3,i) = parms.CB.g2 * parms.CB.gaussian.IGh{i+1}(c1); 
+
+            % ripping
+%             phir = parms.CB.gaussian.IGef{i}(c1,k2);
+%             phir = 0;
+
+%             if Q(1) <= 0
+%                 phir = 0;
+%             end
+
+%             phi2s(4,i) = phir - parms.CB.b * parms.CB.gaussian.IGf{i}(c2) * R(1);
+%             phi2s(4,i) = 0;
+%             phi2s(2,i) = parms.CB.k * parms.CB.gaussian.IG{i}(inf,c1,k2) - parms.CB.b * parms.CB.gaussian.IGf{i}(c2) * R(1);
+
+            % attaching
+            beta(1,i) = parms.CB.f * parms.CB.gaussian.IGf{i}(c2);
+            phi1(1,i) = parms.CB.f * parms.CB.gaussian.IGf{i}(c2) * Q(1);
+        end
+
+        Rd = phi2s(end,1);
+        phi2 = sum(phi2s);
+
+    end
 
     function[phi] = analytical_solution_zahalak(Q0, Q1, Q2,parms)          
         eps = 1e-6; 
@@ -568,6 +719,7 @@ end
         end
         
       end
+
     function[lce] = calc_length_from_force(F, parms)
         
         % method 1: ignore PE
@@ -587,7 +739,6 @@ end
     
       function[Xd] = crossbridge_new(r, x, parms)
 
-
         %% retrieve states
         Q0 = x(1); 
         Q1 = x(2); 
@@ -604,22 +755,21 @@ end
             R = x(4);
         end
 
-
         % rate constants
         parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
         parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
 
         % calculate beta and phi
-        [beta,phi,Rd] = cfxc.beta_phi_func_v2(Q0,Q1,Q2,R,parms);
-
-        %% length dynamics  
+%         [beta,phi1,phi2,Rd] = cfxc.beta_phi_func_v2(Q0,Q1,Q2,R,parms);
+        [beta,phi1,phi2,Rd] = cfxc.beta_phi_func_v3(Q0,Q1,Q2,R,parms);
+        %% determine length and filament overlap
         if ~parms.set.fixed_velocity
             % length scaling parameter
             gamma = parms.CB.h / (0.5 * parms.CB.s); % crossbridge to half-sarcomere
             alpha = 1 / (gamma * parms.ce.lceopt); % crossbridge to whole-muscle
 
             % either length is a quasi-state, or we need to calculate it
-            if (length(x) > 4 && ~parms.thin_filament_coop) || (length(x) > 5)
+            if (length(x) > 5 && ~parms.thin_filament_coop) || (length(x) > 6)
                 lce = x(end);
             else
                 lce = cfxc.calc_length_from_force(Q1/(parms.CB.Xmax(2)/parms.ce.Fmax), parms);
@@ -629,15 +779,47 @@ end
                   a = parms.exp.a; % in case you assume optimum length
             else, a = parms.func.fce(lce, parms); % in case you use force-length relation
             end
+       
+       else
+            a = parms.exp.a;
+        end
+
+        %% cooperative dynamics
+        Ntot = a * r;
+
+        if parms.thin_filament_coop
+            Non = x(5);
+        else
+            Non = a*r;
+        end
+
+        % thin filament activation        
+        if parms.thin_filament_coop
+            
+            % Campbell 2018
+            Jon = 1/2 * parms.CB.kon  * (Ntot-Non)  * (1 + parms.CB.kcoop * Non/Ntot);
+            Joff =      parms.CB.koff * (Non-Q0)    * (1 + parms.CB.kcoop * (Ntot-Non)/Ntot);
+
+            Nond = Jon - Joff;
         
-            if parms.thin_filament_coop
-                Non = x(5);
-            else
-                Non = a*r;
-            end
+        else
+            Nond = [];
+        end
+
+        if length(x)<6
+            DRX = 1;
+            SRXd = [];
+        else
+            SRX = x(6);
+            DRX = 1 - SRX; % proportion of available crossbridges
+            SRXd = parms.CB.k2 .* DRX - (parms.CB.k1 + parms.CB.kF*max(Q1,0)/r) .* SRX;  % note: force must be positive
+        end
+
+       %% length dynamics  
+       if ~parms.set.fixed_velocity
 
             % calculate velocity
-            Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
+            Q1dot = DRX * (Non * beta(2) - phi1(2)) - phi2(2);
             [ks,kp] = cfxc.get_kse_kpe(lce, parms);
             [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, parms.CB.Xmax(2), parms);
 
@@ -646,44 +828,20 @@ end
                 vcerel = u * gamma;
                 vce = vcerel * parms.ce.lceopt;
             end
-
         else
-
             u = parms.exp.u;
-            a = parms.exp.a;
         end
 
-       
-        if parms.thin_filament_coop
-            Non = x(5);
+        %% state derivates
+        Qd0 = DRX * (Non * beta(1) - phi1(1)) - phi2(1);
+        Qd1 = DRX * (Non * beta(2) - phi1(2)) - phi2(2) + 1 * u * Q0;
+        Qd2 = DRX * (Non * beta(3) - phi1(3)) - phi2(3) + 2 * u * Q1;
+
+        %% total state derivative vector
+        if length(x) > 6
+            Xd = [Qd0; Qd1; Qd2; Rd; Nond; SRXd; vce];
         else
-            Non = a*r;
-        end
-
-        %% state derivates (note: removed r)
-        Qd0 = Non * beta(1) - phi(1);
-        Qd1 = Non * beta(2) - phi(2) + 1 * u * Q0;
-        Qd2 = Non * beta(3) - phi(3) + 2 * u * Q1;
-
-        %% thin filament activation        
-        if parms.thin_filament_coop
-            
-        % Campbell 2018
-        Ntot = a * r;
-        Jon = 1/2 * parms.CB.kon  * (Ntot-Non)       * (1 + parms.CB.kcoop * Non);
-        Joff =      parms.CB.koff * (Non-Q0)    * (1 + parms.CB.kcoop * (Ntot-Non));
-
-        Nond = Jon - Joff;
-        
-        else
-            Nond = [];
-        end
-
-        % total state derivative vector
-        if length(x) > 5
-            Xd = [Qd0; Qd1; Qd2; Rd; Nond; vce];
-        else
-            Xd = [Qd0; Qd1; Qd2; Rd; Nond];
+            Xd = [Qd0; Qd1; Qd2; Rd; Nond; SRXd];
         end
         
         Xd = Xd(1:length(x));
@@ -699,12 +857,11 @@ end
     Q1 = x(2); 
     Q2 = x(3); 
 
-
     % rate constants
     parms.CB.f = parms.CB.scale_rates(r,parms.CB.f, parms.CB.mu);
     parms.CB.g = parms.CB.scale_rates(r,parms.CB.g, parms.CB.mu);
 
-    % calculate beta and phi
+    % calculate beta and phi. beta includes all activation-dependent terms, phi includes the activation-independent terms
     [beta,phi] = cfxc.beta_phi_func(Q0,Q1,Q2,parms);
 
     %% length dynamics  
@@ -725,27 +882,30 @@ end
     else, a = parms.func.fce(lce, parms); % in case you use force-length relation
     end
 
+    else
+     u = parms.exp.u;
+     a = parms.exp.a;
+    end
+
     if parms.thin_filament_coop
         Non = x(4);
     else
         Non = a*r;
     end
 
-    % calculate velocity
-    Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
-   [ks,kp] = cfxc.get_kse_kpe(lce, parms);
-    [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, parms.CB.Xmax(2), parms);
-    
-    if parms.set.no_tendon
-        u = alpha * parms.exp.vmtc;
-        vcerel = u * gamma;
-        vce = vcerel * parms.ce.lceopt;
-    end
+   if ~parms.set.fixed_velocity
+        % calculate velocity
+        Q1dot = Non * beta(2) - phi(2); % velocity-independent Q1dot
+        [ks,kp] = cfxc.get_kse_kpe(lce, parms);
+        [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, parms.CB.Xmax(2), parms);
 
+        if parms.set.no_tendon
+            u = alpha * parms.exp.vmtc;
+            vcerel = u * gamma;
+            vce = vcerel * parms.ce.lceopt;
+        end
     else
-
-     u = parms.exp.u;
-     a = parms.exp.a;
+        vce = [];
     end
 
     if parms.thin_filament_coop
@@ -765,12 +925,8 @@ end
     Qd2 = Non * beta(3) - phi(3) + 2 * u * Q1;
     
     % total state derivative vector
-    if length(x) > 4
-        Qd = [Qd0; Qd1; Qd2; Nond; vce];
-    else
-        Qd = [Qd0; Qd1; Qd2; Nond];
-    end
-    
+    Qd = [Qd0; Qd1; Qd2; Nond; vce];
+ 
     end
     
     function[Qd] = crossbridge_v2(r, x, parms)
@@ -811,7 +967,7 @@ end
     % calculate velocity
     Q1dot = a * r * beta(2) - phi(2); % velocity-independent Q1dot
    [ks,kp] = cfxc.get_kse_kpe(lce, parms);
-fmax = parms.CB.Xmax(2);
+    fmax = parms.CB.Xmax(2);
     [vce, u] = cfxc.enforce_forcerate_constraint(Q0,ks,kp,Q1dot, parms.exp.vmtc, fmax, parms);
 
     if parms.set.no_tendon
@@ -1007,6 +1163,8 @@ fmax = parms.CB.Xmax(2);
     parms.exp.x0 = [parms.ce.amin X0 parms.exp.l0];
     
     if fval > 1e-3
+        parms.type = 'crossbridge';
+        parms.set.fixed_velocity = 1;
         parms.exp.stim_type = 'constant';
         parms.exp.A = parms.ce.amin;
         [t,x] = ode113(@cfxc.sim_muscle, [0 5], [parms.ce.amin parms.ce.amin * parms.CB.Xmax], parms.set.odeopt, parms);
@@ -1014,6 +1172,7 @@ fmax = parms.CB.Xmax(2);
         parms.exp.x0 = [X0 parms.exp.l0];
     end
     
+
     % calc Xmax
     opt = optimset('Display','on');
     parms.exp.A = 1;
@@ -1373,7 +1532,7 @@ if show
     legend('Fse','Fce','Fpe','location','best')
     legend boxoff
     title('Passive force-angle')
-    axis([0 max(fl.phis) 0 1])
+    axis([min(fl.phis) max(fl.phis) 0 1])
 
     subplot(222)
     plot(fl.phis,fl.Fse(:,2)/parms.ce.Fmax); hold on; box off
@@ -1383,7 +1542,7 @@ if show
     legend('Fse','Fce','Fpe','location','best')
     legend boxoff
     title('Active force-angle')
-    axis([0 max(fl.phis) 0 1])
+    axis([min(fl.phis) max(fl.phis) 0 1])
 
     subplot(223)
     plot(fl.phis, fl.Lces); box off
@@ -1391,13 +1550,13 @@ if show
     legend('Passive', 'Active','location','best')
     legend box off
     title('Contractile element (CE) length')
-    xlim([0 max(fl.phis)])
+    xlim([min(fl.phis) max(fl.phis)])
 
     subplot(224)
     plot(fl.phis, -diff(fl.Lces,[],2)); box off
     xlabel('Angle (deg)'); ylabel('\Delta Length (m)');
     title('CE length change')
-    xlim([0 max(fl.phis)])
+    xlim([min(fl.phis) max(fl.phis)])
     
     colors = [linspace(0,1,length(fl.phis))', zeros(length(fl.phis),2)];
     symb = '.x';
@@ -1485,12 +1644,12 @@ end
     end
     
    
-function[FCB, parms] = evaluate_DM(v, parms)
+function[FCB, parms, kCB] = evaluate_DM(v, parms)
 
     % non-linear inequality constraint
     nlincon_ineq = @(X) (X(2)/X(1))^2 - X(3)/X(1); % < 0
     nlincon_func = @(X) deal(nlincon_ineq(X),[]); 
-    LB = [1e-6 -inf -inf 1e-6 1e-6]; % Q0 can't be 0
+    LB = [1e-6 -inf -inf 1e-6 1e-6 1e-6]; % Q0 can't be 0
 
     % isometric conditions
     parms.exp.u = 0;
@@ -1537,6 +1696,7 @@ function[FCB, parms] = evaluate_DM(v, parms)
         end
     end
 
+    kCB_con = flip(Xmax(:,1)) / parms.CB.Xmax(1);
     FCB_con = flip(Xmax(:,2)) / parms.CB.Xmax(2);
 
     % eccentric
@@ -1565,9 +1725,11 @@ function[FCB, parms] = evaluate_DM(v, parms)
         end
     end
 
+    kCB_ecc = Xmax(:,1) / parms.CB.Xmax(1);
     FCB_ecc = Xmax(:,2) / parms.CB.Xmax(2);
 
     % combine concentric and eccentric
+    kCB = [kCB_con; kCB_ecc];
     FCB = [FCB_con; FCB_ecc];
 end
 
@@ -1757,7 +1919,11 @@ function[] = state_plot(t,x,titles, ls, color)
      elseif S == 16
         N = 4;
         M = 4;
+     elseif S > 16
+        N = 3;
+        M = 6;
      end
+    
 
     if nargin < 4
         ls = '-';
@@ -1769,7 +1935,7 @@ function[] = state_plot(t,x,titles, ls, color)
 
     for i = 1:S
         subplot(N,M,i);
-        plot(t, x(:,i),'linestyle',ls,'color',color); hold on
+        plot(t, x(:,i),'linestyle',ls,'color',color); hold on; box off
 
         if nargin > 2
             title(titles{i})
